@@ -7,13 +7,33 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "codegen": "react-native codegen"
   },
   "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@op-engineering/op-sqlite": "^18.2.0",
+    "@react-native-camera-roll/camera-roll": "^7.10.2",
+    "@react-native-documents/picker": "^12.0.2",
+    "@react-native/assets-registry": "^0.87.1",
+    "@react-native/new-app-screen": "0.87.1",
+    "@react-navigation/bottom-tabs": "^7.18.18",
+    "@react-navigation/native": "^7.3.18",
+    "@react-navigation/native-stack": "^7.18.10",
     "react": "19.2.3",
     "react-native": "0.87.1",
-    "@react-native/new-app-screen": "0.87.1",
-    "react-native-safe-area-context": "^5.5.2"
+    "react-native-blob-util": "^0.24.10",
+    "react-native-get-random-values": "^2.0.0",
+    "react-native-mmkv": "^4.3.2",
+    "react-native-nitro-modules": "^0.37.1",
+    "react-native-qrcode-svg": "^6.3.22",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-screens": "^4.27.0",
+    "react-native-svg": "^15.15.5",
+    "react-native-vision-camera": "^4.7.3",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -38,5 +58,13 @@
   },
   "engines": {
     "node": ">= 22.11.0"
+  },
+  "codegenConfig": {
+    "name": "FortShareSpecs",
+    "type": "modules",
+    "jsSrcsDir": "src/native/specs",
+    "android": {
+      "javaPackageName": "com.filesharing.specs"
+    }
   }
 }

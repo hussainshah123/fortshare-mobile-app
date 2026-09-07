@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>filesharing</string>
+	<string>FortShare</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,16 +26,42 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-	  <!-- Do not change NSAllowsArbitraryLoads to true, or you will risk app rejection! -->
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_fortshare._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>The camera is used only to scan a FortShare pairing QR code.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FortShare finds nearby devices on your Wi-Fi so you can send files directly to them. Nothing is uploaded to the internet.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>FortShare saves photos and videos you receive to your library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FortShare needs access to your photos so you can pick which ones to send.</string>
+	<key>RCTNewArchEnabled</key>
+	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>DMSans-Regular.ttf</string>
+		<string>DMSans-Medium.ttf</string>
+		<string>DMSans-Bold.ttf</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

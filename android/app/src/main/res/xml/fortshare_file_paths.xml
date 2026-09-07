@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths FortShare may hand to other apps via FileProvider. Deliberately narrow:
+  received files, the outgoing staging directory, and app-private storage.
+-->
+<paths>
+    <external-path name="downloads" path="Download/FortShare/" />
+    <external-files-path name="external_files" path="." />
+    <files-path name="internal_files" path="." />
+    <cache-path name="cache" path="." />
+</paths>

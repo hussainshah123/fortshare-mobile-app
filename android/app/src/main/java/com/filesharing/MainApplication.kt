@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.filesharing.fortshare.FortSharePackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -14,8 +15,10 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Packages that cannot be autolinked yet can be added manually here, for example:
-          // add(MyReactNativePackage())
+          // FortShare's own TurboModules: discovery, sockets/transfer, and
+          // filesystem/notification helpers. App-local modules are not
+          // autolinked, so they are registered by hand.
+          add(FortSharePackage())
         },
     )
   }

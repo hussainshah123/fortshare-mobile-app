@@ -7,10 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		002001810B89E584FE0DCC56 /* FortShareProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2447F884D16005A9A7CF72F /* FortShareProtocol.swift */; };
 		0C80B921A6F3F58F76C31292 /* libPods-filesharing.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-filesharing.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		228F360DAD9157CB4A89F7C2 /* FortShareNotify.mm in Sources */ = {isa = PBXBuildFile; fileRef = 48FA0BC9E14F7EACDE09FB2C /* FortShareNotify.mm */; };
+		37189215D355524E07AD9674 /* FortShareNet.mm in Sources */ = {isa = PBXBuildFile; fileRef = 972E93CA335AB870DBE9FAB3 /* FortShareNet.mm */; };
+		4B6EC0C249EB9EFA7C82D032 /* DMSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1303FA75B23638A3F0D0A3A /* DMSans-Bold.ttf */; };
+		51E0746BEC0168F781DCA612 /* FortSharePeerLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F5E35181D7E528868EC1275 /* FortSharePeerLink.swift */; };
+		525072ADF5D2DF25E33E165D /* FortShareServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172B9271638D1507533CB7F2 /* FortShareServer.swift */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		83E22A9B361458557F069C21 /* FortShareFsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C39F309768BEE0F7CD0893 /* FortShareFsCore.swift */; };
+		8C1F48FA691871174FA844B4 /* FortShareNetEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B574549B2AC7DA8801E3C6A0 /* FortShareNetEvents.swift */; };
+		9539A950AFB18B9BAB953793 /* FortShareDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3F80A03CC399EA0AFA58AF /* FortShareDiscovery.swift */; };
+		B32D04FE17CBB0E199B90BAB /* FortShareFs.mm in Sources */ = {isa = PBXBuildFile; fileRef = CAEA911FCEAB5689457F5CA8 /* FortShareFs.mm */; };
+		D083CA687BFA753952A20290 /* FortShareNotifyCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799B32244316E71642903C9D /* FortShareNotifyCore.swift */; };
+		DBE44BF0168E86ECB9B54A7A /* DMSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38120FD6C7B8A4823E2627D2 /* DMSans-Medium.ttf */; };
+		F6B0DD000081CA7178D387D0 /* FortShareNetCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6D33C2EB4BC59B855DEE1D /* FortShareNetCore.swift */; };
+		F7840FB80411719F57528690 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		FE3113D4C6C7E1194B373ED0 /* DMSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A4FDBE1C7F12FE7144D14F66 /* DMSans-Regular.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,11 +33,25 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = filesharing/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = filesharing/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = filesharing/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		172B9271638D1507533CB7F2 /* FortShareServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareServer.swift; sourceTree = "<group>"; };
+		18C39F309768BEE0F7CD0893 /* FortShareFsCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareFsCore.swift; sourceTree = "<group>"; };
+		1A6D33C2EB4BC59B855DEE1D /* FortShareNetCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareNetCore.swift; sourceTree = "<group>"; };
+		38120FD6C7B8A4823E2627D2 /* DMSans-Medium.ttf */ = {isa = PBXFileReference; includeInIndex = 1; path = "DMSans-Medium.ttf"; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-filesharing.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-filesharing.debug.xcconfig"; path = "Target Support Files/Pods-filesharing/Pods-filesharing.debug.xcconfig"; sourceTree = "<group>"; };
+		3F5E35181D7E528868EC1275 /* FortSharePeerLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortSharePeerLink.swift; sourceTree = "<group>"; };
+		48FA0BC9E14F7EACDE09FB2C /* FortShareNotify.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = FortShareNotify.mm; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-filesharing.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-filesharing.release.xcconfig"; path = "Target Support Files/Pods-filesharing/Pods-filesharing.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-filesharing.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-filesharing.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = filesharing/AppDelegate.swift; sourceTree = "<group>"; };
+		799B32244316E71642903C9D /* FortShareNotifyCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareNotifyCore.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = filesharing/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		972E93CA335AB870DBE9FAB3 /* FortShareNet.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = FortShareNet.mm; sourceTree = "<group>"; };
+		A4FDBE1C7F12FE7144D14F66 /* DMSans-Regular.ttf */ = {isa = PBXFileReference; includeInIndex = 1; path = "DMSans-Regular.ttf"; sourceTree = "<group>"; };
+		B574549B2AC7DA8801E3C6A0 /* FortShareNetEvents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareNetEvents.swift; sourceTree = "<group>"; };
+		C1303FA75B23638A3F0D0A3A /* DMSans-Bold.ttf */ = {isa = PBXFileReference; includeInIndex = 1; path = "DMSans-Bold.ttf"; sourceTree = "<group>"; };
+		C2447F884D16005A9A7CF72F /* FortShareProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareProtocol.swift; sourceTree = "<group>"; };
+		CAEA911FCEAB5689457F5CA8 /* FortShareFs.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = FortShareFs.mm; sourceTree = "<group>"; };
+		EB3F80A03CC399EA0AFA58AF /* FortShareDiscovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FortShareDiscovery.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -46,6 +75,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
+				60DD57A4BDFE625D252DE505 /* FortShare */,
+				7422019CFF3598FDF60C303F /* Fonts */,
 			);
 			name = filesharing;
 			sourceTree = "<group>";
@@ -57,6 +88,36 @@
 				5DCACB8F33CDC322A6C60F78 /* libPods-filesharing.a */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		60DD57A4BDFE625D252DE505 /* FortShare */ = {
+			isa = PBXGroup;
+			children = (
+				EB3F80A03CC399EA0AFA58AF /* FortShareDiscovery.swift */,
+				CAEA911FCEAB5689457F5CA8 /* FortShareFs.mm */,
+				18C39F309768BEE0F7CD0893 /* FortShareFsCore.swift */,
+				972E93CA335AB870DBE9FAB3 /* FortShareNet.mm */,
+				1A6D33C2EB4BC59B855DEE1D /* FortShareNetCore.swift */,
+				B574549B2AC7DA8801E3C6A0 /* FortShareNetEvents.swift */,
+				48FA0BC9E14F7EACDE09FB2C /* FortShareNotify.mm */,
+				799B32244316E71642903C9D /* FortShareNotifyCore.swift */,
+				3F5E35181D7E528868EC1275 /* FortSharePeerLink.swift */,
+				C2447F884D16005A9A7CF72F /* FortShareProtocol.swift */,
+				172B9271638D1507533CB7F2 /* FortShareServer.swift */,
+			);
+			name = FortShare;
+			path = filesharing/FortShare;
+			sourceTree = "<group>";
+		};
+		7422019CFF3598FDF60C303F /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				C1303FA75B23638A3F0D0A3A /* DMSans-Bold.ttf */,
+				38120FD6C7B8A4823E2627D2 /* DMSans-Medium.ttf */,
+				A4FDBE1C7F12FE7144D14F66 /* DMSans-Regular.ttf */,
+			);
+			name = Fonts;
+			path = filesharing/Fonts;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -159,6 +220,10 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				F7840FB80411719F57528690 /* PrivacyInfo.xcprivacy in Resources */,
+				4B6EC0C249EB9EFA7C82D032 /* DMSans-Bold.ttf in Resources */,
+				DBE44BF0168E86ECB9B54A7A /* DMSans-Medium.ttf in Resources */,
+				FE3113D4C6C7E1194B373ED0 /* DMSans-Regular.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -245,6 +310,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				9539A950AFB18B9BAB953793 /* FortShareDiscovery.swift in Sources */,
+				B32D04FE17CBB0E199B90BAB /* FortShareFs.mm in Sources */,
+				83E22A9B361458557F069C21 /* FortShareFsCore.swift in Sources */,
+				37189215D355524E07AD9674 /* FortShareNet.mm in Sources */,
+				F6B0DD000081CA7178D387D0 /* FortShareNetCore.swift in Sources */,
+				8C1F48FA691871174FA844B4 /* FortShareNetEvents.swift in Sources */,
+				228F360DAD9157CB4A89F7C2 /* FortShareNotify.mm in Sources */,
+				D083CA687BFA753952A20290 /* FortShareNotifyCore.swift in Sources */,
+				51E0746BEC0168F781DCA612 /* FortSharePeerLink.swift in Sources */,
+				002001810B89E584FE0DCC56 /* FortShareProtocol.swift in Sources */,
+				525072ADF5D2DF25E33E165D /* FortShareServer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -274,6 +350,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = filesharing;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "filesharing-Swift.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -303,6 +380,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = filesharing;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "filesharing-Swift.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -370,6 +448,10 @@
 				);
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = (
+					"$(inherited)",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DFOLLY_NO_CONFIG",
@@ -377,8 +459,13 @@
 					"-DFOLLY_USE_LIBCPP=1",
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
 				);
+				PODFILE_DIR = "$(SRCROOT)";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				USE_HERMES = true;
 			};
 			name = Debug;
 		};
@@ -435,6 +522,10 @@
 					"\"$(inherited)\"",
 				);
 				MTL_ENABLE_DEBUG_INFO = NO;
+				OTHER_CFLAGS = (
+					"$(inherited)",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DFOLLY_NO_CONFIG",
@@ -442,8 +533,12 @@
 					"-DFOLLY_USE_LIBCPP=1",
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
 				);
+				PODFILE_DIR = "$(SRCROOT)";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				USE_HERMES = true;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
