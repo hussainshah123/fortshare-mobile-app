@@ -39,6 +39,24 @@ jest.mock('react-native-mmkv', () => {
   };
 });
 
+// Media and camera libraries reach for native modules at import time, so they
+// have to be stubbed even for tests that never touch a picker — the store
+// imports the permission service, which imports these.
+jest.mock('@react-native-camera-roll/camera-roll', () => ({
+  CameraRoll: { getPhotos: jest.fn(), getAlbums: jest.fn() },
+  iosReadGalleryPermission: jest.fn(async () => 'granted'),
+  iosRequestReadWriteGalleryPermission: jest.fn(async () => 'granted'),
+}));
+
+jest.mock('react-native-vision-camera', () => ({
+  Camera: {
+    getCameraPermissionStatus: jest.fn(() => 'granted'),
+    requestCameraPermission: jest.fn(async () => 'granted'),
+  },
+  useCameraDevice: jest.fn(() => null),
+  useCodeScanner: jest.fn(() => ({})),
+}));
+
 jest.mock('@op-engineering/op-sqlite', () => ({
   open: () => {
     throw new Error('SQLite is not available in tests; mock the repository');

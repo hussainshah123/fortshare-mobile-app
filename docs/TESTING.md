@@ -31,6 +31,39 @@ faked. Two physical devices are needed; a simulator plus a device works for
 some cases but **iOS simulators do not reliably do mDNS to physical devices**,
 so treat simulator-only results as inconclusive.
 
+### What the iOS Simulator can and cannot test
+
+Worth knowing before relying on it, because the parts it cannot do are the
+parts most worth testing.
+
+| | Simulator |
+|---|---|
+| UI, theme, navigation, database, identity, history | ✅ works |
+| Crypto (handshake, digests) | ✅ works — pure JavaScript |
+| **QR scanning** | ❌ no camera exists at all |
+| **iOS↔iOS peer-to-peer (AWDL)** | ❌ no Wi-Fi hardware |
+| **Local Network permission** | ❌ not enforced as on a device |
+| Discovery/transfer with a real device | ⚠️ sometimes — see below |
+
+The simulator shares the **host Mac's** network stack, so a FortShare app
+running in it advertises Bonjour on the Mac's LAN address and binds its
+listener there. If the Mac is on the same Wi-Fi as a physical Android phone,
+the two can genuinely discover each other — which makes this the cheapest way
+to exercise the Android↔iOS *protocol* path. It is not a substitute for a real
+iPhone: nothing about the radio, AWDL, or the permission prompt is real.
+
+Two simulators on one Mac can also discover each other, for the same reason.
+That tests the iOS↔iOS protocol, minus AWDL.
+
+**On an Intel Mac**, simulator builds must be `x86_64`:
+
+    xcodebuild ... -sdk iphonesimulator ARCHS=x86_64
+
+An `arm64` build compiles and links perfectly but the simulator refuses to
+install it with "This app needs to be updated by the developer" — which sounds
+like a project problem and is only an architecture mismatch. Physical iPhones
+are `arm64` regardless.
+
 ### Setup
 
     npm start                                  # Metro
@@ -88,6 +121,24 @@ prove that, run `tcpdump` on the router: the only traffic should be mDNS
 
 ### Checks worth making explicitly
 
+**Payload encryption (§42).** Chunks are sealed with AES-256-GCM, so this is
+worth confirming rather than assuming:
+
+1. Start a transfer and check the card shows "End-to-end encrypted".
+2. The log line on both devices should read
+   `session established with … (trust: …, cipher: aes-256-gcm)`.
+3. To prove it on the wire, capture on the router (or `tcpdump` on a rooted
+   device) and confirm the TCP payload is not the file's plaintext — a text
+   file is the easiest case to eyeball.
+4. Tamper test: an altered chunk must drop the connection with
+   "chunk failed authentication", never write to disk.
+
+**Content dedup.** Send the same file twice, the second time renamed. The
+second transfer should report it as "Already on this device — not transferred"
+and move zero bytes. Then delete the received file and repeat: it must
+transfer normally, because a history row for a deleted file must not cause a
+silent skip.
+
 **Memory during a large transfer (§17).** The claim is that a 5 GB transfer
 costs one 256 KB buffer per direction and that JavaScript never sees a file
 byte. Verify it rather than trusting it:
@@ -127,11 +178,12 @@ not change, and peers that had paired with it must still connect silently.
 
 ## Known limitations
 
-- **Chunk payloads are not encrypted.** The handshake is authenticated
-  (Ed25519 + X25519 + HKDF) and every file is SHA-256 verified, but the bytes
-  themselves cross the LAN in the clear. Someone with packet capture on your
-  network can read a transfer in flight. See docs/ARCHITECTURE.md §4 for where
-  the AEAD would go.
+- **Android needs a shared network.** Discovery is mDNS over IP, so two
+  Android devices need the same Wi-Fi or a hotspot. iOS↔iOS already works with
+  no shared network at all via AWDL peer-to-peer (`includePeerToPeer`), though
+  that path has not yet been verified on two physical iPhones. Wi-Fi Direct
+  would close this for Android.
+- **No 1→many group send**, and no desktop or web client.
 - **iOS background transfers are bounded.** iOS grants a background task, not
   open-ended execution. A long transfer with the app backgrounded will
   eventually be suspended; it becomes a paused, resumable transfer rather than

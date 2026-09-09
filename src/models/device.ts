@@ -83,6 +83,8 @@ export interface DeviceListItem extends DeviceRecord {
   /** True when this row came from history rather than fresh discovery. */
   previouslyConnected: boolean;
   isPaired: boolean;
+  /** True while a live, authenticated session exists with this device. */
+  hasSession: boolean;
   /** Present only while the peer is discoverable. */
   peer?: DiscoveredPeer;
 }

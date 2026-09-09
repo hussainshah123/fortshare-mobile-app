@@ -30,6 +30,35 @@ export interface NetworkInfo {
   addresses: LocalAddress[];
 }
 
+export interface WifiDirectSupport {
+  supported: boolean;
+  /** `permission-required` means the hardware can, but consent is missing. */
+  reason: string;
+  permission: string;
+  hasPermission: boolean;
+}
+
+export interface WifiDirectState {
+  enabled: boolean;
+  connected: boolean;
+  isGroupOwner: boolean;
+  groupOwnerAddress: string;
+  message: string | null;
+}
+
+export interface WifiDirectLink {
+  /** The group owner's P2P address — where the TCP listener is reachable. */
+  host: string;
+  port: number;
+  isGroupOwner: boolean;
+}
+
+/** A peer seen over Wi-Fi Direct. */
+export interface WifiDirectPeer extends DiscoveredPeer {
+  /** Hardware address, needed to form a group with this peer. */
+  p2pAddress: string;
+}
+
 export interface AdvertiseConfig {
   deviceId: string;
   deviceName: string;
@@ -77,6 +106,75 @@ export const DeviceDiscovery = {
    */
   async getNetworkInfo(): Promise<NetworkInfo> {
     return JSON.parse(await Net.getNetworkInfo()) as NetworkInfo;
+  },
+
+  // ------------------------------------------------------------ wi-fi direct
+
+  /**
+   * Whether Wi-Fi Direct is usable here.
+   *
+   * Distinguishes unsupported hardware from a missing permission, because the
+   * two need different responses: one is a dead end, the other is a prompt.
+   */
+  async wifiDirectSupport(): Promise<WifiDirectSupport> {
+    return JSON.parse(await Net.wifiDirectSupported()) as WifiDirectSupport;
+  },
+
+  /**
+   * Advertise and browse over Wi-Fi Direct — no router in the path.
+   *
+   * This is the path that works when the router blocks client-to-client
+   * traffic, or when the two devices are on different networks entirely.
+   */
+  async startWifiDirect(config: AdvertiseConfig): Promise<void> {
+    await Net.startWifiDirect(
+      JSON.stringify({ ...config, protocolVersion: PROTOCOL_VERSION }),
+    );
+  },
+
+  stopWifiDirect(): Promise<void> {
+    return Net.stopWifiDirect();
+  },
+
+  /** Form a group and resolve once the peer is reachable over it. */
+  async connectWifiDirect(
+    p2pAddress: string,
+    timeoutMs = 30_000,
+  ): Promise<WifiDirectLink> {
+    return JSON.parse(
+      await Net.connectWifiDirect(p2pAddress, timeoutMs),
+    ) as WifiDirectLink;
+  },
+
+  disconnectWifiDirect(): Promise<void> {
+    return Net.disconnectWifiDirect();
+  },
+
+  onWifiDirectPeerFound(
+    handler: (peer: WifiDirectPeer) => void,
+  ): EventSubscription {
+    return typedEvent<WifiDirectPeer>(
+      Net.onWifiDirectPeerFound,
+      'onWifiDirectPeerFound',
+    )(handler);
+  },
+
+  onWifiDirectPeerLost(
+    handler: (event: PeerLostEvent) => void,
+  ): EventSubscription {
+    return typedEvent<PeerLostEvent>(
+      Net.onWifiDirectPeerLost,
+      'onWifiDirectPeerLost',
+    )(handler);
+  },
+
+  onWifiDirectStateChanged(
+    handler: (state: WifiDirectState) => void,
+  ): EventSubscription {
+    return typedEvent<WifiDirectState>(
+      Net.onWifiDirectStateChanged,
+      'onWifiDirectStateChanged',
+    )(handler);
   },
 
   onDeviceFound(handler: (peer: DiscoveredPeer) => void): EventSubscription {

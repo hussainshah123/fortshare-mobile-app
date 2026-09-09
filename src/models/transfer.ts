@@ -66,7 +66,16 @@ export interface TransferFileRecord {
   /** null = not yet checked, true = digest matched, false = mismatch. */
   verified: boolean | null;
   error: string | null;
+  /**
+   * Why this file was skipped, when it was.
+   *
+   * `already-have` is the interesting one: the exact content was matched
+   * against a previously received file by digest, so nothing needed sending.
+   */
+  skipReason: SkipReason | null;
 }
+
+export type SkipReason = 'already-have' | 'user-choice';
 
 /** Live, in-memory view of a running transfer. Not persisted every tick. */
 export interface ActiveTransfer {

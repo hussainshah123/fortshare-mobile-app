@@ -13,6 +13,10 @@ internal interface NetEvents {
     fun discoveryError(json: String)
     fun networkChanged(json: String)
 
+    fun wifiDirectPeerFound(json: String)
+    fun wifiDirectPeerLost(json: String)
+    fun wifiDirectStateChanged(json: String)
+
     fun connection(json: String)
     fun control(json: String)
     fun disconnect(json: String)

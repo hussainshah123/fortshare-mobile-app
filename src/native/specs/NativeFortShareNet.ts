@@ -42,6 +42,38 @@ export interface Spec extends TurboModule {
    */
   getNetworkInfo(): Promise<string>;
 
+  // ------------------------------------------------------------ wi-fi direct
+  /**
+   * Whether this device can do Wi-Fi Direct at all.
+   * Returns { supported, reason } JSON. Always unsupported on iOS.
+   */
+  wifiDirectSupported(): Promise<string>;
+
+  /**
+   * Advertise over Wi-Fi Direct and start looking for P2P peers.
+   *
+   * This is the path that does not involve the router at all: two devices
+   * negotiate a group directly over Wi-Fi, so it works when they are on
+   * different networks, on no network, or on a router whose client isolation
+   * blocks them from reaching each other.
+   *
+   * @param configJson the same shape as startDiscovery.
+   */
+  startWifiDirect(configJson: string): Promise<void>;
+  stopWifiDirect(): Promise<void>;
+
+  /**
+   * Form a Wi-Fi Direct group with a peer and resolve once it is usable.
+   *
+   * Resolves with { host, port, isGroupOwner } JSON — `host` is the group
+   * owner's P2P address, which is what the TCP listener is reachable on.
+   * Rejects if the group cannot be formed or the peer never publishes a port.
+   */
+  connectWifiDirect(deviceAddress: string, timeoutMs: Int32): Promise<string>;
+
+  /** Leave the current group and stop advertising over P2P. */
+  disconnectWifiDirect(): Promise<void>;
+
   // ----------------------------------------------------------------- sockets
   /** Bind the TCP listener on an ephemeral port. Resolves with that port. */
   startServer(): Promise<Int32>;
@@ -90,6 +122,16 @@ export interface Spec extends TurboModule {
   readonly onDiscoveryError: EventEmitter<string>;
   /** { available, address } JSON — emitted on Wi-Fi up/down/change. */
   readonly onNetworkChanged: EventEmitter<string>;
+
+  /**
+   * A peer seen over Wi-Fi Direct, as DiscoveredPeer JSON plus
+   * `p2pAddress` — the MAC-style address `connectWifiDirect` needs.
+   */
+  readonly onWifiDirectPeerFound: EventEmitter<string>;
+  /** { deviceId } JSON. */
+  readonly onWifiDirectPeerLost: EventEmitter<string>;
+  /** { enabled, connected, isGroupOwner, groupOwnerAddress, message } JSON. */
+  readonly onWifiDirectStateChanged: EventEmitter<string>;
 
   /** { connectionId, host, port, inbound } JSON. */
   readonly onConnection: EventEmitter<string>;

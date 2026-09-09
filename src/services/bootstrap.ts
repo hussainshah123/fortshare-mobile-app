@@ -142,12 +142,16 @@ function wireStoreBridges(): void {
     SessionManager.onSession((session) => {
       void useDeviceStore.getState().refreshHistory();
       useDeviceStore.getState().setConnecting(session.peer.deviceId, false);
+      // Marks the device reachable even if it never announced itself over
+      // mDNS — which is exactly what a QR pairing produces.
+      useDeviceStore.getState().setConnected(session.peer.deviceId, true);
     }),
   );
 
   unsubscribers.push(
     SessionManager.onSessionEnd((deviceId) => {
       useDeviceStore.getState().setConnecting(deviceId, false);
+      useDeviceStore.getState().setConnected(deviceId, false);
     }),
   );
 

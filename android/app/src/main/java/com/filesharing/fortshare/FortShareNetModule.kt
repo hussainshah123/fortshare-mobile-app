@@ -33,6 +33,10 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
         override fun peerLost(json: String) = emitOnPeerLost(json)
         override fun discoveryError(json: String) = emitOnDiscoveryError(json)
         override fun networkChanged(json: String) = emitOnNetworkChanged(json)
+        override fun wifiDirectPeerFound(json: String) = emitOnWifiDirectPeerFound(json)
+        override fun wifiDirectPeerLost(json: String) = emitOnWifiDirectPeerLost(json)
+        override fun wifiDirectStateChanged(json: String) =
+            emitOnWifiDirectStateChanged(json)
         override fun connection(json: String) = emitOnConnection(json)
         override fun control(json: String) = emitOnControl(json)
         override fun disconnect(json: String) = emitOnDisconnect(json)
@@ -45,8 +49,10 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
 
     private val connections = ConnectionRegistry(events)
     private val discovery = DiscoveryEngine(reactContext.applicationContext, events)
+    private val wifiDirect = WifiDirectEngine(reactContext.applicationContext, events)
 
     override fun invalidate() {
+        runCatching { wifiDirect.stop() }
         runCatching { discovery.stop() }
         runCatching { connections.stopServer() }
         io.shutdownNow()
@@ -92,6 +98,61 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
 
     override fun getNetworkInfo(promise: Promise) {
         background(promise) { discovery.networkInfo() }
+    }
+
+    // ------------------------------------------------------------- wi-fi direct
+
+    override fun wifiDirectSupported(promise: Promise) {
+        background(promise) {
+            val support = wifiDirect.support()
+            Json.obj(
+                "supported" to support.supported,
+                "reason" to support.reason,
+                "permission" to wifiDirect.requiredPermission(),
+                "hasPermission" to wifiDirect.hasPermission(),
+            )
+        }
+    }
+
+    override fun startWifiDirect(configJson: String, promise: Promise) {
+        background(promise) {
+            val config = JSONObject(configJson)
+            wifiDirect.start(
+                DiscoveryEngine.AdvertiseConfig(
+                    deviceId = config.getString("deviceId"),
+                    deviceName = config.getString("deviceName"),
+                    platform = config.optString("platform", "android"),
+                    deviceType = config.optString("deviceType", "phone"),
+                    fingerprint = config.optString("fingerprint", ""),
+                    port = config.getInt("port"),
+                ),
+            )
+            null
+        }
+    }
+
+    override fun stopWifiDirect(promise: Promise) {
+        background(promise) {
+            wifiDirect.stop()
+            null
+        }
+    }
+
+    override fun connectWifiDirect(
+        deviceAddress: String,
+        timeoutMs: Double,
+        promise: Promise,
+    ) {
+        background(promise) {
+            wifiDirect.connect(deviceAddress, timeoutMs.toInt())
+        }
+    }
+
+    override fun disconnectWifiDirect(promise: Promise) {
+        background(promise) {
+            wifiDirect.disconnect()
+            null
+        }
     }
 
     // ------------------------------------------------------------------ sockets

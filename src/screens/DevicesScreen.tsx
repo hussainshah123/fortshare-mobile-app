@@ -15,6 +15,7 @@ import {
   Text,
 } from '../components/ui';
 import { DeviceCard } from '../components/device/DeviceCard';
+import { WifiDirectPanel } from '../components/device/WifiDirectPanel';
 import { deviceListItems, useDeviceStore } from '../store';
 import type { RootStackParamList } from '../navigation/types';
 import type { DeviceListItem } from '../models/device';
@@ -37,6 +38,14 @@ export function DevicesScreen() {
 
   const [tab, setTab] = useState<Tab>('nearby');
   const [refreshing, setRefreshing] = useState(false);
+  /**
+   * Set once a connection fails with "no route" to a device we can see.
+   *
+   * That combination means the router is dropping client-to-client traffic,
+   * which no amount of retrying will fix — so the Wi-Fi Direct offer stops
+   * being a footnote and becomes the recommended action.
+   */
+  const [blockedByRouter, setBlockedByRouter] = useState(false);
 
   const devices = useDeviceStore(deviceListItems);
   const loading = useDeviceStore((state) => state.loading);
@@ -67,7 +76,10 @@ export function DevicesScreen() {
     (device: DeviceListItem) => {
       navigation.navigate('DeviceDetail', { deviceId: device.deviceId });
       if (device.status !== 'offline') {
-        void ensureSession(device.deviceId, device.name);
+        void ensureSession(device.deviceId, device.name).then((session) => {
+          // A visible device that will not connect is the isolation case.
+          if (!session) setBlockedByRouter(true);
+        });
       }
     },
     [navigation, ensureSession],
@@ -174,6 +186,14 @@ export function DevicesScreen() {
           { value: 'favorites', label: 'Favourites', count: buckets.favorites.length },
         ]}
       />
+
+      {/*
+        Offered whenever the Nearby tab is in use, and emphasised once a
+        connection has actually been refused by the router.
+      */}
+      {tab === 'nearby' ? (
+        <WifiDirectPanel blocked={Boolean(discoveryError) || blockedByRouter} />
+      ) : null}
 
       {discoveryError ? (
         <Card

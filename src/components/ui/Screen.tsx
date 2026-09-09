@@ -65,8 +65,25 @@ export function Screen({
     </View>
   ) : null;
 
+  /**
+   * `flex: 1` matters on the non-scrolling path.
+   *
+   * Without it this wrapper is sized to its content on the vertical axis, so a
+   * FlatList child has no bounded height to work with and an
+   * absolutely-positioned child anchors to wherever the content happens to
+   * end rather than to the screen — which clipped the file picker's
+   * selection bar off the bottom.
+   *
+   * Inside a ScrollView it must *not* stretch, or the content cannot grow.
+   */
   const body = (
-    <View style={[{ paddingHorizontal: theme.spacing.xl }, contentStyle]}>
+    <View
+      style={[
+        { paddingHorizontal: theme.spacing.xl },
+        scroll ? null : { flex: 1 },
+        contentStyle,
+      ]}
+    >
       {children}
     </View>
   );

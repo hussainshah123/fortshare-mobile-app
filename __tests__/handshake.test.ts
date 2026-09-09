@@ -540,3 +540,123 @@ describe('regression: frames are processed in order', () => {
     }
   });
 });
+
+/**
+ * Payload encryption is negotiated, not assumed.
+ *
+ * Neither ShareIt nor Zapya encrypts file payloads on the wire, so this is the
+ * app's strongest security claim — which makes it worth pinning that the
+ * negotiation cannot be talked down, and that a peer which cannot decrypt is
+ * never handed ciphertext.
+ */
+describe('cipher negotiation', () => {
+  it('agrees on AES-256-GCM when both sides support it', async () => {
+    const a = makeParty('Pixel 8', 'android-a');
+    const b = makeParty('iPhone', 'ios-b');
+
+    const { results } = await runHandshake(a, b);
+    const [initiator, responder] = results;
+    if (initiator!.status !== 'fulfilled' || responder!.status !== 'fulfilled') {
+      throw new Error('handshake did not complete');
+    }
+
+    expect(initiator!.value.cipher).toBe('aes-256-gcm');
+    // Both sides must reach the *same* conclusion, or one encrypts while the
+    // other writes ciphertext to disk as if it were the file.
+    expect(responder!.value.cipher).toBe(initiator!.value.cipher);
+  });
+
+  it('falls back to plaintext against a peer that advertises no cipher', async () => {
+    const a = makeParty('Pixel 8', 'android-a');
+    const b = makeParty('Old build', 'legacy-b');
+
+    const { results } = await runHandshake(a, b, {
+      tamper: (message, from) => {
+        // Simulate a build predating encryption: no `ciphers` field at all.
+        if (from === 'responder' && message.t === 'HELLO_ACK') {
+          const { ciphers, ...rest } = message;
+          void ciphers;
+          return rest as typeof message;
+        }
+        return message;
+      },
+    });
+
+    const initiator = results[0];
+    if (initiator!.status !== 'fulfilled') throw new Error('did not complete');
+    // Degrades, but visibly: the UI reports the transfer as unencrypted
+    // rather than implying protection that is not there.
+    expect(initiator!.value.cipher).toBe('none');
+  });
+
+  it('cannot be downgraded while both sides still support AES-GCM', async () => {
+    const a = makeParty('Pixel 8', 'android-a');
+    const b = makeParty('iPhone', 'ios-b');
+
+    const { results } = await runHandshake(a, b, {
+      tamper: (message, from) => {
+        // A peer claiming to prefer plaintext must not drag us down: our own
+        // preference order decides, and AES-GCM is still mutually supported.
+        if (from === 'responder' && message.t === 'HELLO_ACK') {
+          return { ...message, ciphers: ['none', 'aes-256-gcm'] };
+        }
+        return message;
+      },
+    });
+
+    const initiator = results[0];
+    if (initiator!.status !== 'fulfilled') throw new Error('did not complete');
+    expect(initiator!.value.cipher).toBe('aes-256-gcm');
+  });
+});
+
+/**
+ * Pairing is symmetric.
+ *
+ * A user reasonably expects that once two devices are paired, either one can
+ * send to the other — it should not matter which phone held the camera. That
+ * only holds if *both* sides pin the other's key during the handshake, so it
+ * is worth asserting rather than assuming.
+ */
+describe('pairing works in both directions', () => {
+  it('pins both devices when one scans the other\'s QR', async () => {
+    const shower = makeParty('HUAWEI JSN-L22', 'huawei-2');
+    const scanner = makeParty('INFINIX Infinix X6885', 'infinix-1');
+
+    const qr = generateQr(shower.identity, '192.168.1.39', 45903);
+    rememberScannedPsk(qr.payload.deviceId, qr.payload.psk, qr.payload.exp);
+
+    const { results } = await runHandshake(scanner, shower, {
+      initiatorPsk: scannedPsk,
+    });
+    expect(results[0]!.status).toBe('fulfilled');
+    expect(results[1]!.status).toBe('fulfilled');
+
+    // The device that showed the code trusts the scanner...
+    expect(mockPinned.get('infinix-1')?.edPublicKey).toBe(
+      scanner.identity.edPublicKey,
+    );
+    // ...and the scanner trusts the device that showed it. Either can now
+    // initiate, so "who scanned" stops mattering the moment pairing succeeds.
+    expect(mockPinned.get('huawei-2')?.edPublicKey).toBe(
+      shower.identity.edPublicKey,
+    );
+  });
+
+  it('lets the device that showed the QR later dial the scanner', async () => {
+    const shower = makeParty('HUAWEI JSN-L22', 'huawei-2');
+    const scanner = makeParty('INFINIX Infinix X6885', 'infinix-1');
+
+    const qr = generateQr(shower.identity, '192.168.1.39', 45903);
+    rememberScannedPsk(qr.payload.deviceId, qr.payload.psk, qr.payload.exp);
+    await runHandshake(scanner, shower, { initiatorPsk: scannedPsk });
+
+    // Roles reversed, no QR this time: the shower is now the initiator.
+    const { results, approvals } = await runHandshake(shower, scanner);
+
+    expect(results[0]!.status).toBe('fulfilled');
+    expect(results[1]!.status).toBe('fulfilled');
+    // And nobody is asked to approve anything, because both keys are pinned.
+    expect(approvals).toEqual([]);
+  });
+});

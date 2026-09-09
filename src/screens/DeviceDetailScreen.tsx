@@ -55,8 +55,16 @@ export function DeviceDetailScreen() {
       .then((pairing) => setFingerprint(pairing?.fingerprint ?? null));
   }, [params.deviceId]);
 
-  const online = device ? device.status !== 'offline' : false;
-  const connected = SessionManager.isConnected(params.deviceId);
+  /**
+   * Whether we can send right now.
+   *
+   * A live session counts even when discovery has never seen this device: a
+   * QR pairing connects by address, so the peer never appears in the mDNS
+   * map. Gating on discovery alone hid this button on a device we were
+   * actively connected to.
+   */
+  const connected = device?.hasSession || SessionManager.isConnected(params.deviceId);
+  const online = connected || (device ? device.status !== 'offline' : false);
 
   const sendFiles = useCallback(async () => {
     if (!device) return;
@@ -123,6 +131,13 @@ export function DeviceDetailScreen() {
             </Text>
             <StatusBadge
               status={connecting ? 'connecting' : device.status}
+              label={
+                connecting
+                  ? undefined
+                  : connected
+                    ? 'Connected'
+                    : undefined
+              }
             />
             {device.previouslyConnected ? (
               <Text variant="caption" tone="muted">

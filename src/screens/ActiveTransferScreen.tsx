@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../theme';
+import { SessionManager } from '../network/session/SessionManager';
 import { Button, Card, EmptyState, Screen, Section, Text } from '../components/ui';
 import { TransferProgressCard } from '../components/transfer/TransferProgressCard';
 import { FileRow } from '../components/file/FileRow';
@@ -53,6 +54,7 @@ export function ActiveTransferScreen() {
       <View style={{ marginBottom: theme.spacing.xl }}>
         <TransferProgressCard
           transfer={transfer}
+          cipher={SessionManager.session(record.deviceId)?.cipher}
           onPause={
             record.status === 'active'
               ? () => void useTransferStore.getState().pause(record.id)

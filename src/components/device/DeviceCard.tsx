@@ -30,11 +30,13 @@ export function DeviceCard({
   const theme = useTheme();
   const online = device.status !== 'offline';
 
-  const subtitle = device.previouslyConnected
-    ? online
-      ? 'Previously connected'
-      : `Last seen ${formatRelativeTime(device.lastSeenAt).toLowerCase()}`
-    : 'New device';
+  const subtitle = device.hasSession
+    ? 'Connected — ready to send'
+    : device.previouslyConnected
+      ? online
+        ? 'Previously connected'
+        : `Last seen ${formatRelativeTime(device.lastSeenAt).toLowerCase()}`
+      : 'New device';
 
   return (
     <Pressable

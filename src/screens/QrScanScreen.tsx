@@ -158,13 +158,32 @@ export function QrScanScreen() {
     );
   }
 
-  if (permission === 'checking' || !device) {
+  if (permission === 'checking') {
+    return (
+      <Screen title="Scan QR">
+        <EmptyState icon="scan" title="Preparing camera" message="One moment…" />
+      </Screen>
+    );
+  }
+
+  /**
+   * Permission granted but no camera exists.
+   *
+   * The iOS Simulator has no camera at all, and so do some tablets and
+   * kiosk-style devices. Previously this fell into the "Preparing camera"
+   * branch and sat there forever, which reads as a hang rather than as an
+   * unavailable feature — and pointed at the wrong thing entirely.
+   */
+  if (!device) {
     return (
       <Screen title="Scan QR">
         <EmptyState
           icon="scan"
-          title="Preparing camera"
-          message="One moment…"
+          title="No camera available"
+          message="This device has no usable camera, so a QR code cannot be scanned. On a simulator this is expected — use a physical device to test pairing, or have the other device scan your code instead."
+          tone="error"
+          actionLabel="Show my QR instead"
+          onAction={() => navigation.replace('QrShow')}
         />
       </Screen>
     );

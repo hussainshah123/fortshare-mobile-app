@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { pick, types } from '@react-native-documents/picker';
@@ -57,6 +58,7 @@ const APK_MIME = 'application/vnd.android.package-archive';
  */
 export function FilePickerScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
   const { params } = useRoute<Route>();
   const toast = useUiStore((state) => state.toast);
@@ -418,7 +420,12 @@ export function FilePickerScreen() {
         keyExtractor={(item) => item.key}
         contentContainerStyle={{
           paddingTop: theme.spacing.lg,
-          paddingBottom: chosen.length > 0 ? 140 : theme.spacing.huge,
+          // Enough room to scroll the last row clear of the floating bar,
+          // including the home indicator or navigation bar below it.
+          paddingBottom:
+            chosen.length > 0
+              ? 150 + insets.bottom
+              : theme.spacing.huge + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
@@ -510,7 +517,9 @@ export function FilePickerScreen() {
             position: 'absolute',
             left: 0,
             right: 0,
-            bottom: theme.spacing.lg,
+            // Clears the home indicator / software navigation bar, which was
+            // cutting the Continue button in half on gesture-nav devices.
+            bottom: insets.bottom + theme.spacing.md,
           }}
         >
           <SelectionBar

@@ -3,6 +3,7 @@ import { SectionList, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../theme';
+import { SessionManager } from '../network/session/SessionManager';
 import {
   EmptyState,
   Screen,
@@ -93,6 +94,7 @@ export function TransfersScreen() {
                 <View key={transfer.record.id} style={{ marginBottom: theme.spacing.md }}>
                   <TransferProgressCard
                     transfer={transfer}
+                    cipher={SessionManager.session(transfer.record.deviceId)?.cipher}
                     onPause={
                       transfer.record.status === 'active'
                         ? () =>

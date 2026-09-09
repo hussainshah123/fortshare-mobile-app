@@ -2,6 +2,7 @@ import type { EventSubscription } from 'react-native';
 import { PeerConnection } from '../../native';
 import type { ConnectionEvent, ControlEvent, DisconnectEvent } from '../../native';
 import type { ControlMessage } from '../../models/protocol';
+import { CIPHER_NONE, type CipherSuite } from '../../constants/protocol';
 import type { DiscoveredPeer, LocalIdentity } from '../../models/device';
 import { deviceRepository } from '../../database/repositories';
 import { identitySecrets } from '../../services/identity';
@@ -12,8 +13,11 @@ import { logger } from '../../services/log';
 import {
   classifyConnectError,
   describeConnectFailure,
+  looksSameSubnet,
   worthTryingAnotherAddress,
 } from './connectErrors';
+import { DeviceDiscovery } from '../../native';
+import { DiscoveryService } from '../discovery/DiscoveryService';
 
 const log = logger('session');
 
@@ -32,6 +36,8 @@ export interface PeerSession {
   peerSessionToken: string;
   expiresAt: number;
   establishedAt: number;
+  /** Payload cipher in force for this connection. */
+  cipher: CipherSuite;
 }
 
 export type SessionListener = (session: PeerSession) => void;
@@ -268,11 +274,62 @@ class SessionManagerImpl {
     }
 
     const failure = classifyConnectError(lastError);
-    const explanation = describeConnectFailure(failure, peer.deviceName);
+
+    // Our own addresses, so "no route to a device on our own subnet" can be
+    // reported as what it actually is rather than as a vague network problem.
+    const ourAddresses = await DeviceDiscovery.getNetworkInfo()
+      .then((info) => info.addresses.map((entry) => entry.address))
+      .catch(() => [] as string[]);
+    const sameSubnet = addresses.some((host) =>
+      looksSameSubnet(host, ourAddresses),
+    );
+
     log.error(`could not reach ${peer.deviceName}: ${failure}`, {
       tried: attempts.map((attempt) => attempt.host || '(bonjour)'),
       port: peer.port,
+      ourAddresses,
+      sameSubnet,
+      diagnosis:
+        failure === 'no-route' && sameSubnet
+          ? 'router is blocking client-to-client traffic (AP isolation)'
+          : failure,
       raw: lastError instanceof Error ? lastError.message : String(lastError),
+    });
+
+    /**
+     * Last resort: go around the router.
+     *
+     * `no-route` to a device we can *see* over mDNS means the router is
+     * dropping traffic between its own clients. No address will ever work in
+     * that case, so retrying is pointless — but a Wi-Fi Direct group has no
+     * router in it at all, and the existing TCP path runs over it unchanged.
+     *
+     * Only attempted when Wi-Fi Direct is already enabled and this peer was
+     * seen over it: forming a group is intrusive enough that it should not
+     * happen behind the user's back.
+     */
+    if (failure === 'no-route') {
+      const routed = await DiscoveryService.openWifiDirectRoute(peer.deviceId)
+        .catch((error: unknown) => {
+          log.warn('wi-fi direct fallback failed', error);
+          return null;
+        });
+
+      if (routed) {
+        log.info(`retrying ${peer.deviceName} over wi-fi direct`);
+        return PeerConnection.connect({
+          host: routed.host,
+          port: routed.port,
+          serviceRef: '',
+        });
+      }
+    }
+
+    const explanation = describeConnectFailure(failure, peer.deviceName, {
+      // The peer came from the live discovery map, so multicast reached us —
+      // it really is on this network.
+      discoveredOnThisNetwork: true,
+      sameSubnet,
     });
     // Thrown with the human explanation, because this is what the UI shows.
     throw new Error(explanation);
@@ -488,19 +545,24 @@ class SessionManagerImpl {
       peerSessionToken: result.peerSessionToken,
       expiresAt: result.expiresAt,
       establishedAt: Date.now(),
+      cipher: result.cipher,
     };
 
     this.sessions.set(result.peer.deviceId, session);
     this.byConnection.set(connectionId, result.peer.deviceId);
     log.info(
-      `session established with ${result.peer.deviceName} (trust: ${result.trustMethod})`,
+      `session established with ${result.peer.deviceName} ` +
+        `(trust: ${result.trustMethod}, cipher: ${result.cipher})`,
       { deviceId: result.peer.deviceId, fingerprint: result.peer.fingerprint },
     );
 
-    // Reserved for AEAD on the data path; see docs/ARCHITECTURE.md §4.
-    await PeerConnection.setSessionKey(connectionId, result.sessionKey).catch(
-      () => undefined,
-    );
+    // Hands the negotiated key to the native data path, which is what turns
+    // payload encryption on. Only when a cipher was actually agreed: without
+    // this check a peer that cannot decrypt would receive ciphertext it would
+    // silently write to disk as garbage.
+    if (result.cipher !== CIPHER_NONE) {
+      await PeerConnection.setSessionKey(connectionId, result.sessionKey);
+    }
 
     await deviceRepository.upsertOnConnect({
       deviceId: result.peer.deviceId,

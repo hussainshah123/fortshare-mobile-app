@@ -65,6 +65,40 @@ final class FortShareNetCore: NSObject {
     @objc func getLocalAddress() -> String { discovery.localAddress() }
     @objc func getNetworkInfo() -> String { discovery.networkInfo() }
 
+    // MARK: - Wi-Fi Direct
+
+    /// Wi-Fi Direct is an Android API with no iOS counterpart.
+    ///
+    /// iOS's equivalent is AWDL, which Network framework already uses: both
+    /// the listener and the browser set `includePeerToPeer`, so iOS↔iOS works
+    /// with no shared network and needs no separate mode. There is nothing to
+    /// switch on here, and reporting `supported: false` lets the shared UI say
+    /// so plainly instead of offering a toggle that would do nothing.
+    @objc func wifiDirectSupported() -> String {
+        FortShareJSON.encode([
+            ("supported", false),
+            (
+                "reason",
+                "iOS uses Apple's peer-to-peer Wi-Fi (AWDL) automatically, so no separate mode is needed."
+            ),
+            ("permission", ""),
+            ("hasPermission", false),
+        ])
+    }
+
+    @objc func startWifiDirect(configJson: String) throws {
+        throw FortShareError.message("Wi-Fi Direct is not available on iOS")
+    }
+
+    @objc func stopWifiDirect() {}
+
+    @objc func connectWifiDirect(deviceAddress: String, timeoutMs: Double) throws
+        -> String {
+        throw FortShareError.message("Wi-Fi Direct is not available on iOS")
+    }
+
+    @objc func disconnectWifiDirect() {}
+
     // MARK: - Sockets
 
     @objc func startServer() throws -> NSNumber {

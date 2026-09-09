@@ -108,4 +108,23 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
+MIGRATIONS.push({
+  version: 2,
+  description: 'skipReason, plus a digest index for content-based dedup',
+  statements: [
+    // Why a file was skipped. "You already have this" and "you chose to skip"
+    // look identical in the UI otherwise, and only one of them is worth
+    // telling the user about.
+    `ALTER TABLE transfer_files ADD COLUMN skipReason TEXT`,
+
+    // Content-addressed lookup. FortShare already computes a SHA-256 for every
+    // file before offering it, so an incoming file can be matched against what
+    // has already been received *by content* — catching a duplicate even when
+    // it has been renamed. Neither ShareIt nor Zapya does this; both compare
+    // filenames at best.
+    `CREATE INDEX IF NOT EXISTS idx_transfer_files_sha
+       ON transfer_files (sha256, status)`,
+  ],
+});
+
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

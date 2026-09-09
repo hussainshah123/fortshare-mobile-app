@@ -139,18 +139,41 @@ Screens never import from `network/`.
   identity *out of band*, which is what defeats a man-in-the-middle on first
   contact.
 
-### One gap, stated plainly
+### Payloads are encrypted
 
-**File chunk payloads are not encrypted.** The handshake is authenticated and
-every file is integrity-verified, but the bytes themselves cross the LAN in the
-clear — someone capturing packets on your network can read a transfer in
-flight. Encrypting them requires an AEAD in the native data path, since
-JavaScript never sees the bytes by design; the session key is already derived
-and handed to the native layer, and `docs/ARCHITECTURE.md` §4 marks where it
-would land. This is documented rather than hidden behind vague wording.
+Every file chunk is sealed with **AES-256-GCM** on the native data path, using
+a key derived from the handshake's X25519 agreement — so the key never touches
+the network and is fresh for every connection.
 
-Other limitations — bounded iOS background execution, flattened folder
-transfers — are in [docs/TESTING.md](docs/TESTING.md).
+- 12-byte random nonce per chunk, carried in the frame. Random rather than
+  derived from `(fileIndex, offset)`, because a derived nonce would repeat if a
+  chunk were re-sent under the same session key — and a repeated nonce under
+  GCM is catastrophic, not untidy.
+- The frame header (`fileIndex` + `offset`) is the AAD, so a valid chunk cannot
+  be relocated to a different offset or file.
+- A tag that fails to verify drops the connection. Altered bytes are never
+  written to disk.
+- Negotiated in HELLO, and the preference order is ours — a peer cannot
+  downgrade a mutually-supported cipher. If a peer genuinely cannot encrypt,
+  the transfer still runs and the UI **says so** rather than showing a badge
+  that lies.
+
+Hardware-accelerated on every ARMv8 device, so a multi-gigabyte transfer pays
+no meaningful cost for it.
+
+### Remaining limitations
+
+- **Android needs a shared network.** Discovery is mDNS over IP, so two Android
+  devices need the same Wi-Fi or a hotspot. iOS↔iOS already works with no
+  shared network via AWDL peer-to-peer. Wi-Fi Direct is the missing piece for
+  Android — see the roadmap note below.
+- **No desktop or web client.** Android and iOS only.
+- **One device per transfer.** No 1→many group send.
+- **iOS background execution is bounded** — a long transfer that gets
+  suspended becomes a paused, resumable transfer rather than a failed one.
+- **Folder transfers flatten.** Directory structure is not recreated.
+
+More detail in [docs/TESTING.md](docs/TESTING.md).
 
 ---
 

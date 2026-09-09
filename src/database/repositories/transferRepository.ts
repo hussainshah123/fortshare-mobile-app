@@ -46,6 +46,7 @@ interface TransferFileRow {
   status: string;
   verified: number | null;
   error: string | null;
+  skipReason: string | null;
 }
 
 const toTransfer = (row: TransferRow): TransferRecord => ({
@@ -79,6 +80,7 @@ const toFile = (row: TransferFileRow): TransferFileRecord => ({
   status: row.status as TransferFileStatus,
   verified: fromSqlBoolNullable(row.verified),
   error: row.error,
+  skipReason: (row.skipReason as TransferFileRecord['skipReason']) ?? null,
 });
 
 /** Statuses that can still be resumed. Used by the Active tab and resume sweep. */
@@ -121,8 +123,8 @@ export const transferRepository = {
         await exec(
           `INSERT INTO transfer_files
              (id, transferId, fileIndex, name, uri, destPath, size, mimeType,
-              sha256, transferredBytes, status, verified, error)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              sha256, transferredBytes, status, verified, error, skipReason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             file.id,
             file.transferId,
@@ -137,6 +139,7 @@ export const transferRepository = {
             file.status,
             file.verified === null ? null : toSqlBool(file.verified),
             file.error,
+            file.skipReason,
           ],
         );
       }
@@ -324,6 +327,7 @@ export const transferRepository = {
         | 'error'
         | 'destPath'
         | 'sha256'
+        | 'skipReason'
       >
     >,
   ): Promise<void> {
@@ -353,6 +357,10 @@ export const transferRepository = {
       sets.push('sha256 = ?');
       params.push(patch.sha256);
     }
+    if (patch.skipReason !== undefined) {
+      sets.push('skipReason = ?');
+      params.push(patch.skipReason);
+    }
     if (sets.length === 0) return;
     params.push(fileId);
     await execute(
@@ -367,6 +375,34 @@ export const transferRepository = {
 
   async removeAll(): Promise<void> {
     await execute('DELETE FROM transfers');
+  },
+
+  /**
+   * A previously received file with this exact content, if we have one.
+   *
+   * Content-addressed rather than name-based: re-sending a folder of photos
+   * skips the ones already on the device even if they were renamed, which is
+   * the case filename comparison misses entirely.
+   */
+  async findReceivedByDigest(
+    sha256: string,
+  ): Promise<{ name: string; destPath: string } | null> {
+    if (!sha256) return null;
+    const row = await queryOne<{ name: string; destPath: string | null }>(
+      `SELECT f.name AS name, f.destPath AS destPath
+         FROM transfer_files f
+         JOIN transfers t ON t.id = f.transferId
+        WHERE f.sha256 = ?
+          AND f.status = 'completed'
+          AND f.verified = 1
+          AND t.direction = 'receive'
+          AND f.destPath IS NOT NULL
+        ORDER BY t.createdAt DESC
+        LIMIT 1`,
+      [sha256],
+    );
+    if (!row?.destPath) return null;
+    return { name: row.name, destPath: row.destPath };
   },
 
   async totals(): Promise<{ transfers: number; bytes: number }> {

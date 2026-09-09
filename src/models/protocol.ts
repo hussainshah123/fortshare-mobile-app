@@ -27,6 +27,13 @@ export interface HelloMessage {
   /** base64url 32 random bytes, fresh per connection. Blocks replay. */
   nonce: string;
   chunkSize: number;
+  /**
+   * Payload ciphers this peer can speak, best first.
+   *
+   * Absent means an older build that only does plaintext, which is handled
+   * explicitly rather than by assuming a shared default.
+   */
+  ciphers?: string[];
 }
 
 /** The responder's HELLO. Same shape, distinct tag to keep the FSM explicit. */

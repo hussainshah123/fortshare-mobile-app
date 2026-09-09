@@ -11,6 +11,30 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!--
+      Wi-Fi Direct. Lets two devices form a direct link with no router, which
+      is the only thing that works when a router blocks client-to-client
+      traffic (AP isolation) or the devices are on different networks.
+
+      NEARBY_WIFI_DEVICES replaces the location requirement from Android 13.
+      Below that, Android genuinely requires ACCESS_FINE_LOCATION to scan for
+      P2P peers — an OS constraint, not a FortShare choice. It is declared with
+      maxSdkVersion so newer devices never see it, requested only when the user
+      turns Wi-Fi Direct on, and never used for location.
+    -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="tiramisu" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="32" />
+
+    <uses-feature
+        android:name="android.hardware.wifi.direct"
+        android:required="false" />
+
     <!-- Keeps a transfer running while the app is backgrounded (§36). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

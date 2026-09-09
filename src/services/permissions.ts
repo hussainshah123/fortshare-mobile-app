@@ -89,6 +89,52 @@ export async function requestCameraAccess(): Promise<boolean> {
   return requested === 'granted';
 }
 
+/**
+ * The permission Wi-Fi Direct scanning needs.
+ *
+ * From Android 13 this is NEARBY_WIFI_DEVICES, declared `neverForLocation`.
+ * Below that Android genuinely requires fine location to scan for P2P peers —
+ * an OS constraint, not a FortShare choice, and the rationale text says so
+ * rather than leaving the user to wonder why a file-sharing app wants their
+ * location. Requested only when the user turns Wi-Fi Direct on.
+ */
+export async function requestWifiDirectAccess(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+
+  const androidApi =
+    typeof Platform.Version === 'number'
+      ? Platform.Version
+      : Number.parseInt(String(Platform.Version), 10);
+
+  if (androidApi >= 33) {
+    const result = await PermissionsAndroid.request(
+      'android.permission.NEARBY_WIFI_DEVICES' as Parameters<
+        typeof PermissionsAndroid.request
+      >[0],
+      {
+        title: 'Allow FortShare to find nearby devices',
+        message:
+          'Wi-Fi Direct connects the two phones to each other without a router, so it works even when your Wi-Fi blocks devices from talking.',
+        buttonPositive: 'Allow',
+        buttonNegative: 'Not now',
+      },
+    );
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  }
+
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    {
+      title: 'Location permission is required for Wi-Fi Direct',
+      message:
+        'Android requires location permission to scan for nearby Wi-Fi Direct devices. FortShare does not read, store or send your location — this is an Android requirement on this version.',
+      buttonPositive: 'Allow',
+      buttonNegative: 'Not now',
+    },
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}
+
 /** Notification access, requested only when a transfer is about to start. */
 export async function requestNotificationAccess(): Promise<boolean> {
   if (await Notifications.hasPermission().catch(() => false)) return true;

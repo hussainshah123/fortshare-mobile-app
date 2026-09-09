@@ -13,6 +13,8 @@ import {
 
 interface Props {
   transfer: ActiveTransfer;
+  /** Cipher in force, so the UI never implies protection that is absent. */
+  cipher?: string;
   onPause?: () => void;
   onResume?: () => void;
   onCancel?: () => void;
@@ -31,6 +33,7 @@ interface Props {
  */
 export function TransferProgressCard({
   transfer,
+  cipher,
   onPause,
   onResume,
   onCancel,
@@ -74,6 +77,46 @@ export function TransferProgressCard({
           {Math.round(percent)}%
         </Text>
       </View>
+
+      {/*
+        Stated explicitly rather than assumed. Neither ShareIt nor Zapya
+        encrypts payloads, so this is worth showing — and when a peer is too
+        old to negotiate it, saying so plainly is better than a badge that
+        quietly lies.
+      */}
+      {cipher ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.spacing.xs,
+            alignSelf: 'flex-start',
+            paddingVertical: 3,
+            paddingHorizontal: theme.spacing.sm,
+            borderRadius: theme.radius.pill,
+            marginBottom: theme.spacing.md,
+            backgroundColor:
+              cipher === 'none' ? theme.colors.warningSoft : theme.colors.successSoft,
+          }}
+        >
+          <Icon
+            name="shield"
+            size={12}
+            color={cipher === 'none' ? theme.colors.warning : theme.colors.success}
+          />
+          <Text
+            variant="caption"
+            style={{
+              color:
+                cipher === 'none' ? theme.colors.warning : theme.colors.success,
+            }}
+          >
+            {cipher === 'none'
+              ? 'Not encrypted — peer is on an older version'
+              : 'End-to-end encrypted'}
+          </Text>
+        </View>
+      ) : null}
 
       <ProgressBar percent={percent} color={tone} height={9} />
 

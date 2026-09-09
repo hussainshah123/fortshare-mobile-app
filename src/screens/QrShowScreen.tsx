@@ -4,8 +4,14 @@ import QRCode from 'react-native-qrcode-svg';
 import { useTheme } from '../theme';
 import { Button, Card, Icon, Screen, Section, Text } from '../components/ui';
 import { generateQr, revokeAll } from '../network/pairing/qr';
-import { useAppStore, useDeviceStore } from '../store';
+import { useAppStore, useDeviceStore, useUiStore } from '../store';
 import { DeviceDiscovery } from '../native';
+import { SessionManager } from '../network/session/SessionManager';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/types';
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 import { formatFingerprint } from '../services/crypto';
 import { QR_TOKEN_TTL_MS } from '../constants/protocol';
 
@@ -22,6 +28,8 @@ import { QR_TOKEN_TTL_MS } from '../constants/protocol';
  */
 export function QrShowScreen() {
   const theme = useTheme();
+  const navigation = useNavigation<Nav>();
+  const toast = useUiStore((state) => state.toast);
   const identity = useAppStore((state) => state.identity);
   const port = useAppStore((state) => state.port);
   const localAddress = useDeviceStore((state) => state.localAddress);
@@ -62,6 +70,27 @@ export function QrShowScreen() {
 
   // Burn every issued code on the way out.
   useEffect(() => () => revokeAll(), []);
+
+  /**
+   * React to being paired.
+   *
+   * Pairing is symmetric — both devices pin each other's key — but only the
+   * device that *scanned* was getting any feedback. The device showing the
+   * code sat on a QR it no longer needed, with no sign that anything had
+   * happened and no way to send. So: confirm, then go to that device, where
+   * "Send Files" is.
+   */
+  useEffect(() => {
+    const unsubscribe = SessionManager.onSession((session) => {
+      toast(`Paired with ${session.peer.deviceName}`, 'success');
+      void useDeviceStore.getState().refreshHistory();
+      revokeAll();
+      navigation.replace('DeviceDetail', {
+        deviceId: session.peer.deviceId,
+      });
+    });
+    return unsubscribe;
+  }, [navigation, toast]);
 
   const expired = remaining <= 0;
   const seconds = Math.ceil(remaining / 1000);

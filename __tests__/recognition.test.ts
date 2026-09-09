@@ -57,20 +57,31 @@ function state(options: {
   peers?: DiscoveredPeer[];
   paired?: string[];
   connecting?: string[];
+  connected?: string[];
 }) {
   return {
     history: options.history ?? [],
     peers: new Map((options.peers ?? []).map((item) => [item.deviceId, item])),
     paired: new Set(options.paired ?? []),
     connecting: new Set(options.connecting ?? []),
+    connected: new Set(options.connected ?? []),
     networkAvailable: true,
     localAddress: '192.168.1.10',
     discovering: true,
     discoveryError: null,
     loading: false,
+    wifiDirect: {
+      enabled: false,
+      connected: false,
+      supported: false,
+      unsupportedReason: '',
+      message: null,
+    },
+    toggleWifiDirect: async () => ({ ok: true }),
     refreshHistory: async () => {},
     applyDiscovery: () => {},
     setConnecting: () => {},
+    setConnected: () => {},
     toggleFavorite: async () => {},
     renameDevice: async () => {},
     removeDevice: async () => {},
@@ -295,5 +306,48 @@ describe('selector reference stability', () => {
     const dialling = state({ history, peers, connecting: ['android-2222'] });
 
     expect(deviceListItems(idle)).not.toBe(deviceListItems(dialling));
+  });
+});
+
+/**
+ * Regression: a live session must count as reachable.
+ *
+ * A QR pairing produces a session without any mDNS announcement, so the peer
+ * never enters the discovery map. Deriving reachability from discovery alone
+ * therefore marked an actively-connected device "Offline" and hid the Send
+ * Files button — leaving the user paired, encrypted, and unable to send.
+ */
+describe('a device with a live session', () => {
+  it('reads as online even when discovery has never seen it', () => {
+    const [item] = deviceListItems(
+      state({
+        history: [record()],
+        peers: [], // never announced over mDNS — this is the QR case
+        connected: ['android-2222'],
+      }),
+    );
+
+    expect(item!.status).toBe('online');
+    expect(item!.hasSession).toBe(true);
+  });
+
+  it('reads as offline once the session ends and discovery is silent', () => {
+    const [item] = deviceListItems(
+      state({ history: [record()], peers: [], connected: [] }),
+    );
+    expect(item!.status).toBe('offline');
+    expect(item!.hasSession).toBe(false);
+  });
+
+  it('still reports connecting while the handshake is in flight', () => {
+    const [item] = deviceListItems(
+      state({
+        history: [record()],
+        connecting: ['android-2222'],
+        connected: ['android-2222'],
+      }),
+    );
+    // Mid-handshake is more specific than "online", so it wins.
+    expect(item!.status).toBe('connecting');
   });
 });

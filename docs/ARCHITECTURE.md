@@ -260,15 +260,42 @@ generated and verified entirely on the two devices.
 default). Every `TRANSFER_OFFER` carries it. It dies with the connection; nothing resumable is
 authorised by a stale credential.
 
-### What is and is not encrypted — stated plainly
+### What is encrypted
 
 - Handshake: authenticated (Ed25519 + X25519 + HKDF). Real crypto, real MITM resistance.
-- File integrity: SHA-256, computed natively over the file stream, verified on receipt.
-- **File chunk payloads travel unencrypted over the LAN.** Encrypting them requires an AEAD in
-  the native data path (JavaScript cannot see the bytes by design). The session key is already
-  derived and handed to the native layer, and the frame codec has the hook for it —
-  `TransferCrypto` in both native modules is the single place it would land. This is documented
-  as a known gap rather than hidden behind vague wording.
+- File integrity: SHA-256, computed natively over the file stream, verified on receipt before
+  the file is published.
+- **File chunk payloads: AES-256-GCM**, keyed from the handshake's X25519 agreement.
+  Implemented in `TransferCrypto.kt` and `FortShareTransferCrypto.swift`, on the native data
+  path — JavaScript never sees a file byte, so that is the only place it could live.
+
+An encrypted DATA frame payload:
+
+```
+[4B fileIndex][8B offset]   <- header; authenticated, not encrypted (AAD)
+[12B nonce]                 <- random per chunk
+[ciphertext || 16B tag]
+```
+
+The header stays in the clear because the receiver needs `offset` to know where to write before
+it can decrypt; authenticating it as AAD is what prevents a valid chunk being relocated to a
+different offset or a different file.
+
+The nonce is **random per chunk** rather than derived from `(fileIndex, offset)`. A derived
+nonce repeats if the same chunk is ever re-sent under the same session key — which a
+pause/resume on a still-open connection can do — and nonce reuse under GCM leaks the
+authentication key. Twelve bytes per 256 KB chunk is 0.005% overhead to remove that entire
+class of bug.
+
+A tag that fails to verify drops the connection: altered bytes are never written to the user's
+disk. Negotiated via `ciphers` in HELLO and resolved against *our* preference order, so a peer
+cannot force a downgrade while AES-GCM is mutually supported. A peer that genuinely cannot
+encrypt still transfers, and the UI reports it as unencrypted rather than showing a badge that
+lies.
+
+Cross-platform parity is guarded by `__tests__/protocolParity.test.ts`, which asserts the
+TypeScript constants against the Kotlin and Swift sources. A mismatched nonce or tag size would
+otherwise fail only between platforms, and only at runtime.
 
 ---
 

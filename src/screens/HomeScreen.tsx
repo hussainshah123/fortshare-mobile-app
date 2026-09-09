@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../theme';
+import { SessionManager } from '../network/session/SessionManager';
 import {
   Avatar,
   Button,
@@ -232,6 +233,7 @@ export function HomeScreen() {
         <Section title="In progress">
           <TransferProgressCard
             transfer={active}
+            cipher={SessionManager.session(active.record.deviceId)?.cipher}
             compact
             onPause={
               active.record.status === 'active'

@@ -154,6 +154,8 @@ final class FortSharePeerLink {
                 var position = offset
                 var lastEmitAt: TimeInterval = 0
                 var lastEmitBytes = offset
+                // Captured once: the key cannot change mid-file.
+                let key = self.stateQueue.sync { self.sessionKey }
 
                 while position < size {
                     if job.cancelled || job.paused || self.isClosed { break }
@@ -162,12 +164,36 @@ final class FortSharePeerLink {
                     let chunk = try opened.read(upToCount: want) ?? Data()
                     if chunk.isEmpty { break }
 
-                    var frame = FrameCodec.header(
-                        type: FrameCodec.data,
-                        length: FrameCodec.dataHeaderSize + chunk.count
+                    let header = FrameCodec.dataHeader(
+                        fileIndex: fileIndex,
+                        offset: position
                     )
-                    frame.append(FrameCodec.dataHeader(fileIndex: fileIndex, offset: position))
-                    frame.append(chunk)
+
+                    var frame: Data
+                    if let key {
+                        // [header][nonce][ciphertext||tag]
+                        let nonce = TransferCrypto.newNonce()
+                        let sealed = try TransferCrypto.seal(
+                            key: key,
+                            nonce: nonce,
+                            aad: header,
+                            plaintext: chunk
+                        )
+                        frame = FrameCodec.header(
+                            type: FrameCodec.data,
+                            length: FrameCodec.dataHeaderSize + nonce.count + sealed.count
+                        )
+                        frame.append(header)
+                        frame.append(nonce)
+                        frame.append(sealed)
+                    } else {
+                        frame = FrameCodec.header(
+                            type: FrameCodec.data,
+                            length: FrameCodec.dataHeaderSize + chunk.count
+                        )
+                        frame.append(header)
+                        frame.append(chunk)
+                    }
                     try self.sendBlocking(frame)
 
                     position += Int64(chunk.count)
@@ -377,11 +403,42 @@ final class FortSharePeerLink {
 
         let fileIndex = Int32(bitPattern: FrameCodec.readUInt32(payload, at: 0))
         let offset = Int64(bitPattern: FrameCodec.readUInt64(payload, at: 4))
-        let bytes = Data(payload.dropFirst(FrameCodec.dataHeaderSize))
+        // Retained verbatim: this is the AAD the sender authenticated, so it
+        // must be the exact bytes.
+        let header = Data(payload.prefix(FrameCodec.dataHeaderSize))
+        let body = Data(payload.dropFirst(FrameCodec.dataHeaderSize))
 
         // Nothing armed for this index means a stale frame from a cancelled
         // transfer; dropping it is correct and the stream stays aligned.
         guard let target = stateQueue.sync(execute: { receiving[fileIndex] }) else { return }
+
+        let key = stateQueue.sync { sessionKey }
+        let bytes: Data
+
+        if let key {
+            guard body.count >= TransferCrypto.nonceSize + TransferCrypto.tagSize else {
+                close(reason: "truncated encrypted chunk")
+                return
+            }
+            let nonce = Data(body.prefix(TransferCrypto.nonceSize))
+            let sealed = Data(body.dropFirst(TransferCrypto.nonceSize))
+            do {
+                bytes = try TransferCrypto.open(
+                    key: key,
+                    nonce: nonce,
+                    aad: header,
+                    sealed: sealed
+                )
+            } catch {
+                // Altered in flight, or the peer does not hold the session
+                // key. Drop the connection rather than writing unverified
+                // data to the user's disk.
+                close(reason: "chunk failed authentication")
+                return
+            }
+        } else {
+            bytes = body
+        }
 
         do {
             try target.handle.seek(toOffset: UInt64(offset))

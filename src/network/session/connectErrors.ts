@@ -44,6 +44,23 @@ export function classifyConnectError(error: unknown): ConnectFailure {
 }
 
 /**
+ * Same /24 as one of our own addresses?
+ *
+ * A heuristic, but a useful one: combined with a `no-route` failure it
+ * distinguishes "that device is somewhere else" from "that device is right
+ * here and the router is refusing to pass the packets".
+ */
+export function looksSameSubnet(host: string, ourAddresses: string[]): boolean {
+  const prefix = (address: string): string => {
+    const parts = address.split('.');
+    return parts.length === 4 ? parts.slice(0, 3).join('.') : '';
+  };
+  const target = prefix(host);
+  if (!target) return false;
+  return ourAddresses.some((address) => prefix(address) === target);
+}
+
+/**
  * What to tell the user.
  *
  * Each string names the most likely cause *and* what to do, because "no route
@@ -54,10 +71,29 @@ export function classifyConnectError(error: unknown): ConnectFailure {
 export function describeConnectFailure(
   failure: ConnectFailure,
   deviceName: string,
+  context: {
+    /** True when the peer was found by mDNS rather than a stored address. */
+    discoveredOnThisNetwork?: boolean;
+    /** True when the peer's address is on the same /24 as ours. */
+    sameSubnet?: boolean;
+  } = {},
 ): string {
   switch (failure) {
     case 'no-route':
-      return `Can't reach ${deviceName}. Make sure both devices are on the same Wi-Fi — and if they are, your router may have "AP isolation" or "client isolation" turned on, which blocks devices from talking to each other. Sharing a hotspot from one phone always works.`;
+      /**
+       * The diagnosis worth being precise about.
+       *
+       * If mDNS found the device, multicast is reaching us — so the device is
+       * genuinely on this network. A unicast TCP connection that then fails
+       * with "no route" is almost always the router refusing to pass traffic
+       * between its own clients: AP isolation, client isolation, or a guest
+       * network. Telling the user to "check you're on the same Wi-Fi" when
+       * they demonstrably are is worse than useless.
+       */
+      if (context.discoveredOnThisNetwork || context.sameSubnet) {
+        return `${deviceName} is on this network — FortShare can see it — but your router is blocking the two devices from connecting to each other. This is called "AP isolation" or "client isolation" and is often on by default for guest Wi-Fi. Turn it off in your router settings, or share a hotspot from one phone, which bypasses the router entirely.`;
+      }
+      return `Can't reach ${deviceName}. Make sure both devices are on the same Wi-Fi — and if they are, your router may have "AP isolation" turned on, which blocks devices from talking to each other. Sharing a hotspot from one phone always works.`;
     case 'refused':
       return `${deviceName} refused the connection. FortShare may have been closed or restarted on that device — open it and try again.`;
     case 'timeout':

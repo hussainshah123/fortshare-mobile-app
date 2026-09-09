@@ -148,6 +148,9 @@ internal class PeerLink(
                 var position = offset
                 var lastEmitAt = 0L
                 var lastEmitBytes = offset
+                // Captured once: the key cannot change mid-file, and reading
+                // the volatile field per chunk would be pointless work.
+                val key = sessionKey
 
                 while (position < size) {
                     if (job.cancelled || job.paused || closed.get()) break
@@ -157,15 +160,40 @@ internal class PeerLink(
                     if (read <= 0) break
 
                     Frames.putDataHeader(buffer, fileIndex, position)
-                    writeLock.withLock {
-                        if (closed.get()) throw IOException("connection closed")
-                        Frames.writeHeader(
-                            output,
-                            Frames.TYPE_DATA,
-                            Frames.DATA_HEADER_SIZE + read,
+                    val header = buffer.copyOfRange(0, Frames.DATA_HEADER_SIZE)
+
+                    if (key != null) {
+                        // [header][nonce][ciphertext||tag]
+                        val nonce = TransferCrypto.newNonce()
+                        val sealed = TransferCrypto.seal(
+                            key = key,
+                            nonce = nonce,
+                            aad = header,
+                            plaintext = buffer,
+                            offset = Frames.DATA_HEADER_SIZE,
+                            length = read,
                         )
-                        output.write(buffer, 0, Frames.DATA_HEADER_SIZE + read)
-                        output.flush()
+                        val frameLength =
+                            Frames.DATA_HEADER_SIZE + TransferCrypto.NONCE_SIZE + sealed.size
+                        writeLock.withLock {
+                            if (closed.get()) throw IOException("connection closed")
+                            Frames.writeHeader(output, Frames.TYPE_DATA, frameLength)
+                            output.write(header)
+                            output.write(nonce)
+                            output.write(sealed)
+                            output.flush()
+                        }
+                    } else {
+                        writeLock.withLock {
+                            if (closed.get()) throw IOException("connection closed")
+                            Frames.writeHeader(
+                                output,
+                                Frames.TYPE_DATA,
+                                Frames.DATA_HEADER_SIZE + read,
+                            )
+                            output.write(buffer, 0, Frames.DATA_HEADER_SIZE + read)
+                            output.flush()
+                        }
                     }
                     position += read
 
@@ -376,6 +404,8 @@ internal class PeerLink(
             return
         }
 
+        // Retained verbatim: it is the AAD for the authenticated decryption
+        // below, so it must be the exact bytes the sender authenticated.
         val header = ByteArray(Frames.DATA_HEADER_SIZE)
         Frames.readFully(input, header, header.size)
         val fileIndex =
@@ -397,19 +427,55 @@ internal class PeerLink(
             return
         }
 
-        val buffer = ByteArray(minOf(payloadLength, Protocol.IO_BUFFER_SIZE))
-        var written = 0
-        synchronized(target.handle) {
-            target.handle.seek(offset)
-            while (written < payloadLength) {
-                val want = minOf(buffer.size, payloadLength - written)
-                val read = input.read(buffer, 0, want)
-                if (read < 0) throw EOFException("peer closed mid-chunk")
-                target.handle.write(buffer, 0, read)
-                written += read
+        val key = sessionKey
+        val plainBytes: Int
+
+        if (key != null) {
+            // Encrypted: the whole payload has to be in hand before the tag
+            // can be checked, so it is read as one block. That is bounded by
+            // the negotiated chunk size, not by the file size.
+            if (payloadLength < TransferCrypto.NONCE_SIZE + TransferCrypto.TAG_SIZE) {
+                Frames.skip(input, payloadLength)
+                throw IOException("truncated encrypted chunk")
             }
+            val nonce = ByteArray(TransferCrypto.NONCE_SIZE)
+            Frames.readFully(input, nonce, nonce.size)
+
+            val sealedLength = payloadLength - TransferCrypto.NONCE_SIZE
+            val sealed = ByteArray(sealedLength)
+            Frames.readFully(input, sealed, sealedLength)
+
+            val plain = try {
+                TransferCrypto.open(key, nonce, header, sealed, 0, sealedLength)
+            } catch (error: Throwable) {
+                // A tag that does not verify means the bytes were altered in
+                // flight, or the peer does not hold the session key. Never
+                // write unverified data to the user's disk.
+                throw IOException("chunk failed authentication: ${error.message}")
+            }
+
+            synchronized(target.handle) {
+                target.handle.seek(offset)
+                target.handle.write(plain)
+            }
+            plainBytes = plain.size
+        } else {
+            val buffer = ByteArray(minOf(payloadLength, Protocol.IO_BUFFER_SIZE))
+            var written = 0
+            synchronized(target.handle) {
+                target.handle.seek(offset)
+                while (written < payloadLength) {
+                    val want = minOf(buffer.size, payloadLength - written)
+                    val read = input.read(buffer, 0, want)
+                    if (read < 0) throw EOFException("peer closed mid-chunk")
+                    target.handle.write(buffer, 0, read)
+                    written += read
+                }
+            }
+            plainBytes = payloadLength
         }
-        target.received = offset + payloadLength
+
+        target.received = offset + plainBytes
 
         val now = System.currentTimeMillis()
         val complete = target.received >= target.expectedSize

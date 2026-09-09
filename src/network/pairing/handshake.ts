@@ -1,9 +1,12 @@
 import {
   CHUNK_SIZE,
+  CIPHER_NONE,
+  SUPPORTED_CIPHERS,
   HANDSHAKE_TIMEOUT_MS,
   PAIR_REQUEST_TIMEOUT_MS,
   PROTOCOL_VERSION,
   SESSION_TTL_MS,
+  type CipherSuite,
 } from '../../constants/protocol';
 import type {
   AuthFailMessage,
@@ -53,6 +56,13 @@ export interface HandshakeResult {
   peerSessionToken: string;
   expiresAt: number;
   trustMethod: PairingMethod;
+  /**
+   * Payload cipher both peers agreed on.
+   *
+   * `none` means the peer could not do better — the transfer still runs, but
+   * the UI says so rather than implying protection that is not there.
+   */
+  cipher: CipherSuite;
 }
 
 export type HandshakeFailure = AuthFailMessage['reason'];
@@ -117,6 +127,7 @@ export class Handshake {
   private peerToken = '';
   private expiresAt = 0;
   private trustMethod: PairingMethod = 'auto';
+  private cipher: CipherSuite = CIPHER_NONE;
   private peerAuthVerified = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -295,6 +306,14 @@ export class Handshake {
     }
 
     this.peerHello = message;
+
+    // Best cipher both sides can speak. Order comes from our own preference
+    // list, so a peer cannot talk us down to a weaker choice than we would
+    // have picked ourselves.
+    const theirs = new Set(message.ciphers ?? [CIPHER_NONE]);
+    this.cipher =
+      SUPPORTED_CIPHERS.find((candidate) => theirs.has(candidate)) ?? CIPHER_NONE;
+
     this.transcript = handshakeTranscript(this.selfParty(), this.peerParty());
 
     const session = deriveSession(
@@ -443,6 +462,7 @@ export class Handshake {
       ephPub: this.ephemeral.publicKey,
       nonce: this.nonce,
       chunkSize: CHUNK_SIZE,
+      ciphers: SUPPORTED_CIPHERS,
     };
   }
 
@@ -546,6 +566,7 @@ export class Handshake {
       peerSessionToken: this.peerToken,
       expiresAt: this.expiresAt,
       trustMethod: this.trustMethod,
+      cipher: this.cipher,
     });
     this.settle = null;
   }

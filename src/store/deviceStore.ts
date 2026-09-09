@@ -20,12 +20,30 @@ interface DeviceState {
   paired: Set<string>;
   /** deviceIds we are mid-handshake with, for the "Connecting…" state. */
   connecting: Set<string>;
+  /**
+   * deviceIds we currently hold a live session with.
+   *
+   * Tracked separately from discovery because it is *stronger* evidence of
+   * reachability: mDNS says a device announced itself, a session says we are
+   * connected to it right now. A QR pairing produces a session without any
+   * mDNS announcement at all, and treating that device as offline hid the
+   * Send Files button on a device we were actively talking to.
+   */
+  connected: Set<string>;
 
   networkAvailable: boolean;
   localAddress: string;
   discovering: boolean;
   discoveryError: string | null;
   loading: boolean;
+  /** Wi-Fi Direct: opt-in, and the only path that bypasses the router. */
+  wifiDirect: {
+    enabled: boolean;
+    connected: boolean;
+    supported: boolean;
+    unsupportedReason: string;
+    message: string | null;
+  };
 
   refreshHistory: () => Promise<void>;
   applyDiscovery: (state: {
@@ -34,8 +52,17 @@ interface DeviceState {
     localAddress: string;
     running: boolean;
     lastError: string | null;
+    wifiDirect: {
+      enabled: boolean;
+      connected: boolean;
+      supported: boolean;
+      unsupportedReason: string;
+      message: string | null;
+    };
   }) => void;
+  toggleWifiDirect: (enabled: boolean) => Promise<{ ok: boolean; message?: string }>;
   setConnecting: (deviceId: string, value: boolean) => void;
+  setConnected: (deviceId: string, value: boolean) => void;
   toggleFavorite: (deviceId: string) => Promise<void>;
   renameDevice: (deviceId: string, name: string) => Promise<void>;
   removeDevice: (deviceId: string) => Promise<void>;
@@ -47,12 +74,20 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   peers: new Map(),
   paired: new Set(),
   connecting: new Set(),
+  connected: new Set(),
 
   networkAvailable: true,
   localAddress: '',
   discovering: false,
   discoveryError: null,
   loading: true,
+  wifiDirect: {
+    enabled: false,
+    connected: false,
+    supported: false,
+    unsupportedReason: '',
+    message: null,
+  },
 
   refreshHistory: async () => {
     const [history, paired] = await Promise.all([
@@ -69,7 +104,22 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       localAddress: state.localAddress,
       discovering: state.running,
       discoveryError: state.lastError,
+      wifiDirect: {
+        enabled: state.wifiDirect.enabled,
+        connected: state.wifiDirect.connected,
+        supported: state.wifiDirect.supported,
+        unsupportedReason: state.wifiDirect.unsupportedReason,
+        message: state.wifiDirect.message,
+      },
     }),
+
+  toggleWifiDirect: async (enabled) => {
+    if (!enabled) {
+      await DiscoveryService.disableWifiDirect();
+      return { ok: true };
+    }
+    return DiscoveryService.enableWifiDirect();
+  },
 
   setConnecting: (deviceId, value) =>
     set((current) => {
@@ -77,6 +127,14 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       if (value) next.add(deviceId);
       else next.delete(deviceId);
       return { connecting: next };
+    }),
+
+  setConnected: (deviceId, value) =>
+    set((current) => {
+      const next = new Set(current.connected);
+      if (value) next.add(deviceId);
+      else next.delete(deviceId);
+      return { connected: next };
     }),
 
   toggleFavorite: async (deviceId) => {
@@ -127,6 +185,7 @@ const buildDeviceList = memoizeSelector(
     peers: Map<string, DiscoveredPeer>,
     paired: Set<string>,
     connecting: Set<string>,
+    connected: Set<string>,
   ): DeviceListItem[] => {
     const items: DeviceListItem[] = history.map((record) => {
       const peer = peers.get(record.deviceId);
@@ -138,9 +197,15 @@ const buildDeviceList = memoizeSelector(
         lastKnownAddress: peer?.host ?? record.lastKnownAddress,
         lastKnownPort: peer?.port ?? record.lastKnownPort,
         lastSeenAt: peer ? Date.now() : record.lastSeenAt,
-        status: statusFor(connecting, record.deviceId, Boolean(peer)),
+        status: statusFor(
+          connecting,
+          connected,
+          record.deviceId,
+          Boolean(peer),
+        ),
         previouslyConnected: true,
         isPaired: paired.has(record.deviceId),
+        hasSession: connected.has(record.deviceId),
         ...(peer ? { peer } : {}),
       };
     });
@@ -166,9 +231,10 @@ const buildDeviceList = memoizeSelector(
         filesReceived: 0,
         bytesSent: 0,
         bytesReceived: 0,
-        status: statusFor(connecting, deviceId, true),
+        status: statusFor(connecting, connected, deviceId, true),
         previouslyConnected: false,
         isPaired: false,
+        hasSession: connected.has(deviceId),
         peer,
       });
     }
@@ -183,16 +249,21 @@ export function deviceListItems(state: DeviceState): DeviceListItem[] {
     state.peers,
     state.paired,
     state.connecting,
+    state.connected,
   );
 }
 
 function statusFor(
   connecting: Set<string>,
+  connected: Set<string>,
   deviceId: string,
-  online: boolean,
+  discovered: boolean,
 ): DeviceStatus {
   if (connecting.has(deviceId)) return 'connecting';
-  return online ? 'online' : 'offline';
+  // A live session outranks discovery: we are demonstrably able to reach this
+  // device, whether or not it is currently announcing itself over mDNS.
+  if (connected.has(deviceId)) return 'online';
+  return discovered ? 'online' : 'offline';
 }
 
 /**

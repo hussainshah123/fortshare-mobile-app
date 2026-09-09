@@ -140,6 +140,8 @@ export function TransferDetailScreen() {
   const state = statusPresentation(transfer.status, theme.colors);
   const sending = transfer.direction === 'send';
   const verified = files.filter((file) => file.verified === true).length;
+  const deduped = files.filter((file) => file.skipReason === 'already-have');
+  const savedBytes = deduped.reduce((sum, file) => sum + file.size, 0);
   const receivedFiles = files.filter(
     (file) => !sending && file.status === 'completed' && file.destPath,
   );
@@ -263,6 +265,38 @@ export function TransferDetailScreen() {
         </Card>
       </Section>
 
+      {/*
+        Content dedup, made visible. FortShare hashes every file before
+        offering it, so a duplicate is caught by content even after a rename —
+        which is worth telling the user about, because it looks like the
+        transfer simply went faster.
+      */}
+      {deduped.length > 0 ? (
+        <Section title="Skipped">
+          <Card>
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: theme.spacing.sm,
+                alignItems: 'flex-start',
+              }}
+            >
+              <Icon name="check" size={16} color={theme.colors.success} />
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyMedium">
+                  {deduped.length} {deduped.length === 1 ? 'file' : 'files'} already
+                  on this device
+                </Text>
+                <Text variant="caption" tone="muted" style={{ marginTop: 2 }}>
+                  Matched by content, so {formatBytes(savedBytes)} never needed
+                  transferring — even if the names differ.
+                </Text>
+              </View>
+            </View>
+          </Card>
+        </Section>
+      ) : null}
+
       {/* Files */}
       <Section title="Files">
         {files.map((file) => (
@@ -328,7 +362,13 @@ export function TransferDetailScreen() {
 
 function fileSubtitle(file: TransferFileRecord): string {
   if (file.status === 'failed') return file.error ?? 'Failed';
-  if (file.status === 'skipped') return 'Skipped';
+  if (file.status === 'skipped') {
+    // Worth distinguishing: one of these saved the user time, the other was
+    // their own choice.
+    return file.skipReason === 'already-have'
+      ? 'Already on this device — not transferred'
+      : 'Skipped';
+  }
   if (file.verified === true) return 'Verified';
   if (file.verified === false) return 'Integrity check failed';
   if (file.status === 'completed') return 'Completed';

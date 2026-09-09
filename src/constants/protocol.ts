@@ -10,8 +10,12 @@
 export const PROTOCOL_VERSION = 1;
 
 /** DNS-SD service type. Both Android (NSD) and iOS (Bonjour) advertise this. */
+/**
+ * Both platforms leave the domain unspecified — Android's NsdManager defaults
+ * to `local`, and iOS is passed `domain: nil` — so there is no domain constant
+ * to keep in step.
+ */
 export const SERVICE_TYPE = '_fortshare._tcp';
-export const SERVICE_DOMAIN = 'local.';
 
 /** 8-byte per-connection preamble: "FSHARE" + 0x00 + version. */
 export const HELLO_MAGIC = 'FSHARE';
@@ -53,6 +57,36 @@ export const KDF_CONTEXT = 'FortShare/v1';
 export const KDF_INFO_SESSION = 'fortshare-session-key';
 export const KDF_INFO_TOKEN = 'fortshare-session-token';
 export const KDF_INFO_QR = 'fortshare-qr-proof';
+
+/**
+ * Payload cipher for the data path.
+ *
+ * AES-256-GCM: universally available (Android `javax.crypto` and iOS
+ * `CryptoKit`), and hardware-accelerated on every ARMv8 device, so a
+ * multi-gigabyte transfer pays no meaningful cost for it.
+ *
+ * Negotiated in HELLO rather than assumed, so a peer running an older build
+ * fails *visibly* to a plaintext transfer instead of silently mismatching.
+ */
+export const CIPHER_AES_GCM = 'aes-256-gcm';
+export const CIPHER_NONE = 'none';
+export type CipherSuite = typeof CIPHER_AES_GCM | typeof CIPHER_NONE;
+
+/** Ciphers this build can speak, best first. */
+export const SUPPORTED_CIPHERS: CipherSuite[] = [CIPHER_AES_GCM, CIPHER_NONE];
+
+/**
+ * Per-chunk nonce, carried explicitly in each DATA frame.
+ *
+ * Random per chunk rather than derived from (fileIndex, offset). A derived
+ * nonce would repeat if the same chunk were ever re-sent under the same
+ * session key — which a pause/resume on a still-open connection can do — and
+ * a repeated nonce under GCM is catastrophic, not merely untidy. Twelve bytes
+ * per 256 KB chunk is 0.005% overhead for removing that whole class of bug.
+ */
+export const NONCE_SIZE = 12;
+/** GCM authentication tag. */
+export const TAG_SIZE = 16;
 
 /** Frame type bytes, mirrored in FortShareFrames.kt and FrameCodec.swift. */
 export const FrameType = {

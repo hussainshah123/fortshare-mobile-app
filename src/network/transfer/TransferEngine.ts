@@ -24,6 +24,9 @@ import type {
   TransferRecord,
 } from '../../models/transfer';
 import { digestsMatch, randomId } from '../../services/crypto';
+import { logger } from '../../services/log';
+
+const log = logger('transfer');
 import { SessionManager, type PeerSession } from '../session/SessionManager';
 import { SpeedTracker } from './speed';
 
@@ -187,6 +190,7 @@ class TransferEngineImpl {
         status: 'pending',
         verified: null,
         error: null,
+        skipReason: null,
       });
     }
     onPrepareProgress?.(selection.length, selection.length);
@@ -397,12 +401,34 @@ class TransferEngineImpl {
     for (const offeredFile of offer.files) {
       let resolution: DuplicateResolution = 'keep-both';
       let destPath = `${dir}/${offeredFile.name}`;
+      let skipReason: TransferFileRecord['skipReason'] = null;
 
-      if (await FortShareFs.exists(destPath)) {
+      /**
+       * Content-addressed duplicate check.
+       *
+       * Every offered file arrives with a SHA-256 already computed, so an
+       * incoming file can be matched against what has previously been
+       * received *by content* — catching a duplicate even when it has been
+       * renamed, which filename comparison misses. Re-sending a folder of
+       * photos then costs nothing for the ones already on the device.
+       *
+       * Only trusted if the matched file is still on disk: a history row for
+       * a file the user has since deleted must not cause a silent skip.
+       */
+      const known = await transferRepository
+        .findReceivedByDigest(offeredFile.sha256)
+        .catch(() => null);
+
+      if (known && (await FortShareFs.exists(known.destPath).catch(() => false))) {
+        resolution = 'skip';
+        skipReason = 'already-have';
+        destPath = known.destPath;
+      } else if (await FortShareFs.exists(destPath)) {
         resolution = await this.resolveDuplicate(offeredFile.name, offeredFile.size);
         if (resolution === 'keep-both') {
           destPath = await FortShareFs.uniquePath(dir, offeredFile.name);
         }
+        if (resolution === 'skip') skipReason = 'user-choice';
       } else {
         resolution = 'replace';
       }
@@ -421,6 +447,7 @@ class TransferEngineImpl {
         status: resolution === 'skip' ? 'skipped' : 'pending',
         verified: null,
         error: null,
+        skipReason,
       };
       files.push(record);
 
@@ -493,6 +520,15 @@ class TransferEngineImpl {
     ctx.speed.start(transferred);
     this.contexts.set(offer.transferId, ctx);
     this.emit(ctx);
+
+    const deduped = files.filter((file) => file.skipReason === 'already-have');
+    if (deduped.length > 0) {
+      const saved = deduped.reduce((sum, file) => sum + file.size, 0);
+      log.info(
+        `skipping ${deduped.length} file(s) already on this device — ${saved} bytes not transferred`,
+        { names: deduped.map((file) => file.name) },
+      );
+    }
 
     await SessionManager.send(session.peer.deviceId, {
       t: 'TRANSFER_ACCEPT',

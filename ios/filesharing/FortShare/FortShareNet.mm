@@ -123,6 +123,52 @@ static void settle(RCTPromiseResolveBlock resolve,
   resolve([_core getNetworkInfo]);
 }
 
+#pragma mark - Wi-Fi Direct
+
+- (void)wifiDirectSupported:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject
+{
+  resolve([_core wifiDirectSupported]);
+}
+
+- (void)startWifiDirect:(NSString *)configJson
+                resolve:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject
+{
+  settle(resolve, reject, ^id(NSError **error) {
+    [self->_core startWifiDirectWithConfigJson:configJson error:error];
+    return nil;
+  });
+}
+
+- (void)stopWifiDirect:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject
+{
+  [_core stopWifiDirect];
+  resolve(nil);
+}
+
+- (void)connectWifiDirect:(NSString *)deviceAddress
+                timeoutMs:(NSInteger)timeoutMs
+                  resolve:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject
+{
+  settle(resolve, reject, ^id(NSError **error) {
+    return [self->_core connectWifiDirectWithDeviceAddress:deviceAddress
+                                                 timeoutMs:(double)timeoutMs
+                                                     error:error];
+  });
+}
+
+- (void)disconnectWifiDirect:(RCTPromiseResolveBlock)resolve
+                      reject:(RCTPromiseRejectBlock)reject
+{
+  [_core disconnectWifiDirect];
+  resolve(nil);
+}
+
+#pragma mark - Sockets
+
 - (void)startServer:(RCTPromiseResolveBlock)resolve
              reject:(RCTPromiseRejectBlock)reject
 {
