@@ -27,9 +27,12 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
   const theme = useTheme();
   const toast = useUiStore((state) => state.toast);
   const wifiDirect = useDeviceStore((state) => state.wifiDirect);
+  const candidates = useDeviceStore((state) => state.wifiDirectCandidates);
   const toggle = useDeviceStore((state) => state.toggleWifiDirect);
+  const invite = useDeviceStore((state) => state.inviteWifiDirect);
 
   const [busy, setBusy] = useState(false);
+  const [inviting, setInviting] = useState<string | null>(null);
 
   // Checked once so an unsupported device can say so instead of offering a
   // switch that would fail.
@@ -57,7 +60,8 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
     !wifiDirect.supported &&
     !wifiDirect.enabled &&
     wifiDirect.unsupportedReason &&
-    wifiDirect.unsupportedReason !== 'permission-required'
+    wifiDirect.unsupportedReason !== 'permission-required' &&
+    wifiDirect.unsupportedReason !== 'wifi-off'
   ) {
     if (!blocked) return null;
     return (
@@ -74,6 +78,10 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
   }
 
   const active = wifiDirect.enabled;
+  // Wi-Fi Direct rides the Wi-Fi radio: it needs Wi-Fi *on*, but not
+  // connected to anything. Worth saying, because "turn Wi-Fi on" sounds
+  // contradictory for a feature whose whole point is not needing a network.
+  const wifiOff = wifiDirect.unsupportedReason === 'wifi-off';
 
   return (
     <Card
@@ -111,7 +119,9 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
         <View style={{ flex: 1 }}>
           <Text variant="bodyMedium">Wi-Fi Direct</Text>
           <Text variant="caption" tone="muted">
-            {active
+            {wifiOff
+              ? 'Turn Wi-Fi on — it need not be connected to anything'
+              : active
               ? wifiDirect.connected
                 ? 'Connected directly — no router involved'
                 : 'On — finding devices without the router'
@@ -152,11 +162,127 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
         </View>
       ) : null}
 
+      {/* Whatever the P2P layer is currently waiting for. */}
+      {wifiDirect.message && active ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: theme.spacing.sm,
+            alignItems: 'center',
+            marginTop: theme.spacing.md,
+            padding: theme.spacing.md,
+            borderRadius: theme.radius.sm,
+            backgroundColor: theme.colors.accentSoft,
+          }}
+        >
+          <Icon name="clock" size={15} color={theme.colors.accent} />
+          <Text variant="caption" tone="accent" style={{ flex: 1 }}>
+            {wifiDirect.message}
+          </Text>
+        </View>
+      ) : null}
+
+      {/*
+        The nearby-device list.
+        
+        These come straight from Wi-Fi Direct, so they appear whether or not
+        the other phone is running FortShare — Wi-Fi Direct is on whenever
+        Wi-Fi is. Tapping one forms a group; once it is up, both devices share
+        a 192.168.49.x network and ordinary discovery identifies the app.
+
+        Requiring a FortShare service record *before* offering to connect was
+        the flaw: when that record never arrived, the feature silently did
+        nothing and there was no way to proceed.
+      */}
       {active ? (
-        <Text variant="caption" tone="faint" style={{ marginTop: theme.spacing.md }}>
-          Devices found this way appear in the list above. Your normal Wi-Fi
-          keeps working — no internet is needed either way.
-        </Text>
+        <View style={{ marginTop: theme.spacing.md }}>
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: theme.colors.border,
+              paddingTop: theme.spacing.md,
+            }}
+          >
+            <Text variant="label" tone="muted">
+              NEARBY DEVICES
+            </Text>
+
+            {candidates.length === 0 ? (
+              <Text
+                variant="caption"
+                tone="faint"
+                style={{ marginTop: theme.spacing.sm }}
+              >
+                Looking… make sure the other phone has Wi-Fi switched on and is
+                within a few metres. It does not need to be on the same network.
+              </Text>
+            ) : (
+              candidates.map((peer) => {
+                const unavailable = peer.status === 'unavailable';
+                return (
+                  <View
+                    key={peer.address}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: theme.spacing.sm,
+                      marginTop: theme.spacing.md,
+                    }}
+                  >
+                    <Icon
+                      name="phone"
+                      size={16}
+                      color={
+                        peer.status === 'connected'
+                          ? theme.colors.success
+                          : theme.colors.textMuted
+                      }
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" numberOfLines={1}>
+                        {peer.name}
+                      </Text>
+                      <Text variant="caption" tone="faint">
+                        {peer.status === 'connected'
+                          ? 'Connected'
+                          : peer.status === 'invited'
+                            ? 'Invitation sent — accept it on that device'
+                            : unavailable
+                              ? 'Not available'
+                              : 'Tap Connect to pair directly'}
+                      </Text>
+                    </View>
+                    <Button
+                      label={peer.status === 'connected' ? 'Connected' : 'Connect'}
+                      variant="secondary"
+                      disabled={unavailable || peer.status === 'connected'}
+                      loading={inviting === peer.address}
+                      onPress={() => {
+                        void (async () => {
+                          setInviting(peer.address);
+                          const result = await invite(peer.address);
+                          setInviting(null);
+                          if (!result.ok && result.message) {
+                            toast(result.message, 'error');
+                          } else {
+                            toast(
+                              `Invitation sent to ${peer.name} — accept it on that device`,
+                            );
+                          }
+                        })();
+                      }}
+                    />
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          <Text variant="caption" tone="faint" style={{ marginTop: theme.spacing.md }}>
+            Your normal Wi-Fi keeps working, and no internet is needed either
+            way.
+          </Text>
+        </View>
       ) : null}
     </Card>
   );

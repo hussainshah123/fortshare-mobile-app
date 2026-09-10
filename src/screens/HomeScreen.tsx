@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../theme';
 import { SessionManager } from '../network/session/SessionManager';
@@ -21,6 +21,9 @@ import {
 import { DeviceChip } from '../components/device/DeviceCard';
 import { TransferProgressCard } from '../components/transfer/TransferProgressCard';
 import { TransferRow } from '../components/transfer/TransferRow';
+import { AdBanner } from '../components/ads/AdBanner';
+import { maybeShowOnHomeScreen } from '../services/ads';
+import { HOME_AD_SETTLE_MS } from '../constants/ads';
 import {
   favoriteDevices,
   primaryTransfer,
@@ -55,6 +58,34 @@ export function HomeScreen() {
   const rescan = useDeviceStore((state) => state.rescan);
 
   const [refreshing, setRefreshing] = useState(false);
+  const adTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Interstitial on returning to Home.
+   *
+   * Delayed so the screen paints first — an ad over a half-drawn screen reads
+   * as a crash and the user cannot tell what they are dismissing. The service
+   * applies the rest of the rules: never during a transfer, never in the first
+   * seconds of a session (that would be an unexpected launch interstitial
+   * under AdMob's policies), and no more than once every ten minutes.
+   *
+   * The timer is cancelled on blur, so navigating away before it fires does
+   * not drop an ad onto whatever screen the user actually went to.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      adTimer.current = setTimeout(() => {
+        maybeShowOnHomeScreen({
+          hasActiveTransfer: useTransferStore.getState().active.size > 0,
+        });
+      }, HOME_AD_SETTLE_MS);
+
+      return () => {
+        if (adTimer.current) clearTimeout(adTimer.current);
+        adTimer.current = null;
+      };
+    }, []),
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -314,6 +345,16 @@ export function HomeScreen() {
             ))
         )}
       </Section>
+
+      {/*
+        Ad slot. No heading and no framing copy — it is an advertisement, not
+        a feature, and labelling it as one of the app's sections would imply
+        otherwise. Collapses to nothing when unfilled, and is unmounted
+        entirely while a transfer runs.
+      */}
+      <View style={{ marginBottom: theme.spacing.xxl }}>
+        <AdBanner />
+      </View>
 
       {/* Storage (§27) */}
       {storageInfo ? (

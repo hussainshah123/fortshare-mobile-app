@@ -20,7 +20,27 @@ final class FortSharePeerLink {
     /// file stream must not interleave *within* a frame, and the send loop
     /// waits on each completion here to get backpressure.
     private let writeQueue = DispatchQueue(label: "fortshare.write")
+
+    /**
+     * Guards mutable state. Never used as the connection's callback queue.
+     *
+     * These two used to be the same queue, which deadlocked the moment any
+     * frame arrived: Network framework delivered the callback *on*
+     * `stateQueue`, the handler read `isClosed`, and that does
+     * `stateQueue.sync` — a queue waiting on itself. libdispatch detects that
+     * and aborts the process (EXC_BAD_INSTRUCTION inside
+     * `__DISPATCH_WAIT_FOR_QUEUE__`), so it was a hard crash on the first
+     * inbound frame rather than a subtle stall.
+     */
     private let stateQueue = DispatchQueue(label: "fortshare.state")
+
+    /**
+     * Where Network framework delivers this connection's callbacks.
+     *
+     * Serial, as NWConnection requires, and deliberately distinct from
+     * `stateQueue` so that reading state from inside a callback is safe.
+     */
+    private let callbackQueue = DispatchQueue(label: "fortshare.connection")
 
     private var buffer = Data()
     private var sawHello = false
@@ -94,7 +114,7 @@ final class FortSharePeerLink {
                 break
             }
         }
-        connection.start(queue: stateQueue)
+        connection.start(queue: callbackQueue)
     }
 
     // MARK: - Writing
@@ -390,7 +410,11 @@ final class FortSharePeerLink {
             case FrameCodec.data:
                 handleDataFrame(payload)
             case FrameCodec.ping:
-                try? sendBlocking(FrameCodec.header(type: FrameCodec.pong, length: 0))
+                // Fire-and-forget, never `sendBlocking`. This runs on the
+                // callback queue, and the send completion is delivered on
+                // that same serial queue — so waiting for it here would
+                // deadlock exactly as the state queue did.
+                sendRaw(FrameCodec.header(type: FrameCodec.pong, length: 0))
             default:
                 break // PONG and anything unknown: ignore, stream stays aligned.
             }

@@ -36,10 +36,72 @@ export function useSendFlow() {
       const existing = SessionManager.session(deviceId);
       if (existing) return existing;
 
-      const peer = DiscoveryService.peer(deviceId);
+      /**
+       * No network at all — refuse immediately.
+       *
+       * Without this the connect attempt runs to a full 10-second timeout and
+       * fails with ENETUNREACH, which reads as "that device is unreachable"
+       * when the real problem is on this device.
+       */
+      const discovery = DiscoveryService.state();
+      if (!discovery.networkAvailable && !discovery.wifiDirect.connected) {
+        toast(
+          'This device has no Wi-Fi connection. Turn Wi-Fi on — no internet is needed.',
+          'error',
+        );
+        return null;
+      }
+
+      let peer = DiscoveryService.peer(deviceId);
+
+      /**
+       * Not on this network — but possibly still reachable.
+       *
+       * When the two devices are on different Wi-Fi networks, mDNS finds
+       * nothing: multicast does not cross networks. Wi-Fi Direct does not care
+       * about networks at all, only radio range, so it is worth trying before
+       * declaring the device unreachable. Previously this gave up here, which
+       * meant the whole Wi-Fi Direct path was unreachable from the one screen
+       * a user would actually use it from.
+       */
+      if (!peer && DiscoveryService.canReachViaWifiDirect(deviceId)) {
+        toast(
+          `Connecting to ${deviceName} directly — accept the invitation on that device`,
+        );
+        setConnecting(true);
+        setConnectingFlag(deviceId, true);
+        try {
+          peer = await DiscoveryService.openWifiDirectRoute(deviceId);
+        } catch (error) {
+          toast(
+            error instanceof Error
+              ? error.message
+              : `Could not open a direct connection to ${deviceName}`,
+            'error',
+          );
+          return null;
+        } finally {
+          setConnecting(false);
+          setConnectingFlag(deviceId, false);
+        }
+      }
+
       if (!peer) {
         // §12: the historical record stays; the device is simply not here.
-        toast(`${deviceName} is not on this network right now`, 'error');
+        //
+        // If Wi-Fi Direct could help but is switched off, say so — "not on
+        // this network" is true but unhelpful when there is a way around it.
+        if (
+          !DiscoveryService.isWifiDirectEnabled() &&
+          DiscoveryService.isWifiDirectAvailable()
+        ) {
+          toast(
+            `${deviceName} is not on this Wi-Fi. Turn on Wi-Fi Direct in Devices to connect without a shared network.`,
+            'error',
+          );
+        } else {
+          toast(`${deviceName} is not reachable right now`, 'error');
+        }
         return null;
       }
 

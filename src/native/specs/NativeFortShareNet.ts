@@ -130,6 +130,19 @@ export interface Spec extends TurboModule {
   readonly onWifiDirectPeerFound: EventEmitter<string>;
   /** { deviceId } JSON. */
   readonly onWifiDirectPeerLost: EventEmitter<string>;
+  /**
+   * Every nearby Wi-Fi Direct device, as
+   * { peers: [{ name, address, status }] } JSON.
+   *
+   * These are raw P2P devices, *not* confirmed FortShare peers: Wi-Fi Direct
+   * is on whenever Wi-Fi is, so a phone shows up here without running this
+   * app. That is exactly what makes it useful — a group can be formed with
+   * any of them, and once it is, both devices land on a 192.168.49.x network
+   * where ordinary mDNS identifies whichever of them is running FortShare.
+   * Requiring a P2P service record first made the whole feature depend on
+   * discovery that often never arrives.
+   */
+  readonly onWifiDirectRawPeers: EventEmitter<string>;
   /** { enabled, connected, isGroupOwner, groupOwnerAddress, message } JSON. */
   readonly onWifiDirectStateChanged: EventEmitter<string>;
 

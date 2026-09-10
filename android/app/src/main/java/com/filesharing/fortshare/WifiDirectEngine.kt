@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pInfo
@@ -85,10 +86,26 @@ internal class WifiDirectEngine(
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)) {
             return Support(false, "This device does not support Wi-Fi Direct.")
         }
+        if (!isWifiRadioOn()) {
+            return Support(false, "wifi-off")
+        }
         if (!hasPermission()) {
             return Support(false, "permission-required")
         }
         return Support(true, "")
+    }
+
+    /**
+     * Whether the Wi-Fi radio is on.
+     *
+     * Wi-Fi Direct rides the Wi-Fi radio, so it cannot work with Wi-Fi
+     * switched off — but it does *not* need Wi-Fi to be connected to anything.
+     * Without this check every P2P call returns BUSY and the user sees four
+     * cryptic failures instead of "turn Wi-Fi on".
+     */
+    private fun isWifiRadioOn(): Boolean {
+        val wifi = context.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        return wifi?.isWifiEnabled == true
     }
 
     /**
@@ -124,6 +141,14 @@ internal class WifiDirectEngine(
         )
         if (!hasPermission()) {
             throw SecurityException("Wi-Fi Direct permission has not been granted")
+        }
+
+        if (!isWifiRadioOn()) {
+            throw IllegalStateException(
+                "Turn Wi-Fi on to use Wi-Fi Direct. It does not need to be " +
+                    "connected to a network, and no internet is required — " +
+                    "the radio just has to be switched on.",
+            )
         }
 
         config = advertise
@@ -218,13 +243,42 @@ internal class WifiDirectEngine(
         )
 
         runCatching { manager.clearServiceRequests(channel, null) }
+
+        /**
+         * Chained rather than fired together.
+         *
+         * WifiP2pManager serialises internally and returns BUSY for anything
+         * issued while another operation is in flight. Firing all four at once
+         * produced four "busy" errors and left discovery not actually running;
+         * each step now waits for the previous one.
+         */
         manager.addServiceRequest(
             channel,
             WifiP2pDnsSdServiceRequest.newInstance(),
-            actionListener("addServiceRequest"),
+            object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    manager.discoverServices(
+                        channel,
+                        object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                discoverPeersWithRetry(manager, channel)
+                            }
+
+                            override fun onFailure(reason: Int) {
+                                // Peers alone are still useful: a group can be
+                                // formed without a service record.
+                                discoverPeersWithRetry(manager, channel)
+                            }
+                        },
+                    )
+                }
+
+                override fun onFailure(reason: Int) {
+                    reportFailure("addServiceRequest", reason)
+                    discoverPeersWithRetry(manager, channel)
+                }
+            },
         )
-        manager.discoverServices(channel, actionListener("discoverServices"))
-        manager.discoverPeers(channel, actionListener("discoverPeers"))
     }
 
     private fun onServiceRecord(record: Map<String, String>, device: WifiP2pDevice) {
@@ -391,8 +445,40 @@ internal class WifiDirectEngine(
                     peerPorts.remove(deviceId)
                     events.wifiDirectPeerLost(Json.obj("deviceId" to deviceId))
                 }
+
+                // Publish the raw list too.
+                //
+                // These are P2P devices, not confirmed FortShare peers — but a
+                // group can be formed with any of them, and once it is, both
+                // sides land on a 192.168.49.x network where ordinary mDNS
+                // identifies the app. Previously this list was used only to
+                // detect removals and then discarded, which meant Wi-Fi Direct
+                // could only reach devices whose P2P service record had
+                // already been discovered — and if it never was, the feature
+                // silently did nothing.
+                val array = org.json.JSONArray()
+                for (device in peers.deviceList) {
+                    array.put(
+                        org.json.JSONObject()
+                            .put("name", device.deviceName.ifEmpty { "Unknown device" })
+                            .put("address", device.deviceAddress)
+                            .put("status", statusLabel(device.status)),
+                    )
+                }
+                events.wifiDirectRawPeers(
+                    Json.obj("peers" to Json.raw(array.toString())),
+                )
             }
         }
+    }
+
+    /** WifiP2pDevice status as something a user can read. */
+    private fun statusLabel(status: Int): String = when (status) {
+        WifiP2pDevice.CONNECTED -> "connected"
+        WifiP2pDevice.INVITED -> "invited"
+        WifiP2pDevice.FAILED -> "failed"
+        WifiP2pDevice.UNAVAILABLE -> "unavailable"
+        else -> "available"
     }
 
     private fun requestConnectionInfo() {
@@ -435,19 +521,55 @@ internal class WifiDirectEngine(
      * WifiP2pManager reports failures through a listener rather than a return
      * value, and a silent failure here looks exactly like "no peers nearby".
      */
+    private fun reportFailure(operation: String, reason: Int) {
+        val text = when (reason) {
+            WifiP2pManager.P2P_UNSUPPORTED ->
+                "Wi-Fi Direct is not supported on this device"
+            WifiP2pManager.BUSY ->
+                "Wi-Fi Direct is busy — try again in a moment"
+            WifiP2pManager.ERROR -> "Wi-Fi Direct reported an internal error"
+            else -> "Wi-Fi Direct failed (code $reason)"
+        }
+        events.discoveryError(Json.obj("message" to "$operation: $text"))
+    }
+
     private fun actionListener(operation: String) =
         object : WifiP2pManager.ActionListener {
             override fun onSuccess() = Unit
-            override fun onFailure(reason: Int) {
-                val text = when (reason) {
-                    WifiP2pManager.P2P_UNSUPPORTED ->
-                        "Wi-Fi Direct is not supported on this device"
-                    WifiP2pManager.BUSY ->
-                        "Wi-Fi Direct is busy — try again in a moment"
-                    WifiP2pManager.ERROR -> "Wi-Fi Direct reported an internal error"
-                    else -> "Wi-Fi Direct failed (code $reason)"
-                }
-                events.discoveryError(Json.obj("message" to "$operation: $text"))
-            }
+            override fun onFailure(reason: Int) = reportFailure(operation, reason)
         }
+
+    /**
+     * Peer discovery, retried once if the framework was busy.
+     *
+     * BUSY here means another P2P operation was still settling, not that
+     * anything is wrong — and peer discovery is the one call that must succeed,
+     * because a group can be formed from the raw peer list alone even when no
+     * service record ever arrives.
+     */
+    private fun discoverPeersWithRetry(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+    ) {
+        manager.discoverPeers(
+            channel,
+            object : WifiP2pManager.ActionListener {
+                override fun onSuccess() = Unit
+                override fun onFailure(reason: Int) {
+                    if (reason != WifiP2pManager.BUSY) {
+                        reportFailure("discoverPeers", reason)
+                        return
+                    }
+                    android.os.Handler(context.mainLooper).postDelayed({
+                        if (running.get()) {
+                            manager.discoverPeers(
+                                channel,
+                                actionListener("discoverPeers (retry)"),
+                            )
+                        }
+                    }, 1500)
+                }
+            },
+        )
+    }
 }

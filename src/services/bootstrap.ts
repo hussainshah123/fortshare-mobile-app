@@ -12,6 +12,12 @@ import {
 } from '../store';
 import { loadIdentity } from './identity';
 import { evaluateTrust } from '../network/pairing/trust';
+import { transferRepository } from '../database/repositories';
+import {
+  initialiseAds,
+  maybeShowInterstitial,
+  noteTransferCompleted,
+} from './ads';
 import type { HandshakePeer } from '../network/pairing/handshake';
 import type { PeerSession } from '../network/session/SessionManager';
 import type { TransferOfferMessage } from '../models/protocol';
@@ -38,6 +44,17 @@ const log = logger('boot');
 let started = false;
 let unsubscribers: (() => void)[] = [];
 let appStateSubscription: { remove: () => void } | null = null;
+/**
+ * The transfer that currently owns the Android foreground service.
+ *
+ * Android will freeze a backgrounded process and tear down its sockets, so a
+ * foreground service is the only sanctioned way to keep a transfer running.
+ * Previously it was started incidentally by the first progress update, which
+ * meant a transfer whose notifications were disabled — or which finished its
+ * first chunk before the throttle fired — had no service at all and was
+ * killed the moment the user switched apps.
+ */
+let serviceOwner: string | null = null;
 
 export async function startFortShare(): Promise<void> {
   if (started) return;
@@ -94,8 +111,22 @@ export async function startFortShare(): Promise<void> {
       })
       .catch((error: unknown) => log.warn('could not read network info', error));
 
+    // Anything still marked active was interrupted by the process dying, so
+    // reconcile it before the UI renders a transfer that is not running.
+    await reconcileInterruptedTransfers();
+
     watchAppState();
     app.setPhase('ready');
+
+    /**
+     * Ads start last, and un-awaited.
+     *
+     * Initialisation does network I/O. Putting it anywhere before this point
+     * would let a slow or blocked ad server delay the listener binding, the
+     * first render, or discovery — none of which have any business waiting on
+     * an advert.
+     */
+    void initialiseAds();
   } catch (error) {
     started = false;
     app.setPhase(
@@ -159,6 +190,7 @@ function wireStoreBridges(): void {
   unsubscribers.push(
     TransferEngine.subscribe((transfer) => {
       useTransferStore.getState().applyActive(transfer);
+      void keepAliveForTransfer(transfer);
       void mirrorToNotification(transfer);
     }),
   );
@@ -167,9 +199,25 @@ function wireStoreBridges(): void {
     TransferEngine.onComplete((record) => {
       void useDeviceStore.getState().refreshHistory();
       void useAppStore.getState().refreshStorage();
+      // Release the foreground service: holding it after the work is done is
+      // both a battery cost and a permanent notification the user cannot
+      // dismiss.
+      if (serviceOwner === record.id) serviceOwner = null;
       void Notifications.stop().catch(() => undefined);
 
       const store = useUiStore.getState();
+      noteTransferCompleted();
+
+      /**
+       * A finished transfer is the one genuinely natural break in this app —
+       * the user has got what they came for and is not mid-task. Suppressed
+       * while anything else is still running, so an ad can never cover a live
+       * progress bar.
+       */
+      maybeShowInterstitial({
+        hasActiveTransfer: useTransferStore.getState().active.size > 0,
+      });
+
       if (record.status === 'completed') {
         const verb = record.direction === 'send' ? 'Sent' : 'Received';
         store.toast(
@@ -247,6 +295,39 @@ async function handleTransferOffer(
   return useUiStore.getState().requestTransferApproval(session, offer);
 }
 
+/**
+ * Recover transfers that were interrupted by the app closing (§19).
+ *
+ * The bytes already moved are safe: the receiver keeps its `.part` file and
+ * every offset is in SQLite. What was missing was the reconciliation — a
+ * transfer left marked `active` looked like it was still running, and nothing
+ * ever tried to pick it up again.
+ *
+ * Marked paused here; `maybeAutoResume` then resumes each one as soon as its
+ * peer is reachable, which is usually within seconds of discovery starting.
+ */
+async function reconcileInterruptedTransfers(): Promise<void> {
+  const reconciled = await transferRepository
+    .markInterruptedAsPaused()
+    .catch(() => 0);
+
+  if (reconciled > 0) {
+    log.info(
+      `${reconciled} transfer(s) were interrupted — marked resumable`,
+    );
+    await useTransferStore.getState().refreshHistory();
+
+    const resumable = await transferRepository.resumable().catch(() => []);
+    if (resumable.length > 0) {
+      useUiStore
+        .getState()
+        .toast(
+          `${resumable.length} interrupted transfer${resumable.length === 1 ? '' : 's'} will resume when the device is back`,
+        );
+    }
+  }
+}
+
 // ------------------------------------------------------------ auto behaviours
 
 /** deviceIds we have already tried to auto-resume, so we do not loop. */
@@ -272,6 +353,8 @@ async function maybeAutoResume(
     .history.filter(
       (record) =>
         record.status === 'paused' &&
+        // Only the sender can resume: the receiver has nothing to push, it
+        // waits for TRANSFER_RESUME and answers with what it already has.
         record.direction === 'send' &&
         peers.has(record.deviceId) &&
         !autoResumeAttempted.has(record.deviceId),
@@ -279,12 +362,64 @@ async function maybeAutoResume(
 
   for (const record of paused) {
     autoResumeAttempted.add(record.deviceId);
-    if (!SessionManager.isConnected(record.deviceId)) continue;
+
+    // Establish the session if there isn't one.
+    //
+    // After an app restart there is never a session yet — discovery finds the
+    // peer seconds before anything connects. Requiring an existing session
+    // here meant an interrupted transfer was reconciled, shown as resumable,
+    // and then silently never resumed.
+    if (!SessionManager.isConnected(record.deviceId)) {
+      const peer = peers.get(record.deviceId);
+      if (!peer) continue;
+      try {
+        log.info(`reconnecting to ${record.deviceName} to resume a transfer`);
+        await SessionManager.connect(peer);
+      } catch (error) {
+        log.warn(`could not reconnect to ${record.deviceName} to resume`, error);
+        continue;
+      }
+    }
+
     await useTransferStore
       .getState()
       .resume(record.id)
-      .catch(() => undefined);
+      .then(() => log.info(`resumed transfer with ${record.deviceName}`))
+      .catch((error: unknown) =>
+        log.warn(`resume failed for ${record.deviceName}`, error),
+      );
   }
+}
+
+/**
+ * Claim the foreground service for as long as a transfer is running.
+ *
+ * Started explicitly when a transfer goes active, rather than relying on a
+ * progress update to do it as a side effect. Only one transfer needs to own
+ * it — the service keeps the whole process alive, not a single stream.
+ */
+async function keepAliveForTransfer(transfer: ActiveTransfer): Promise<void> {
+  const { record } = transfer;
+  const running = record.status === 'active' || record.status === 'paused';
+
+  if (!running) {
+    if (serviceOwner === record.id) {
+      serviceOwner = null;
+      await Notifications.stop().catch(() => undefined);
+    }
+    return;
+  }
+
+  if (serviceOwner === record.id) return;
+  if (serviceOwner !== null) return; // another transfer already holds it
+
+  serviceOwner = record.id;
+  const verb = record.direction === 'send' ? 'Sending to' : 'Receiving from';
+  await Notifications.start({
+    transferId: record.id,
+    title: `${verb} ${record.deviceName}`,
+    body: `${record.fileCount} ${record.fileCount === 1 ? 'file' : 'files'}`,
+  }).catch(() => undefined);
 }
 
 /** Keep the Android foreground-service notification in step with progress. */

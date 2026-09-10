@@ -53,6 +53,20 @@ export interface WifiDirectLink {
   isGroupOwner: boolean;
 }
 
+/**
+ * A nearby Wi-Fi Direct device.
+ *
+ * Not necessarily a FortShare peer: Wi-Fi Direct is on whenever Wi-Fi is, so
+ * phones appear here without running the app. A group can still be formed with
+ * any of them, and mDNS identifies the app afterwards over the P2P network.
+ */
+export interface RawWifiDirectPeer {
+  name: string;
+  /** P2P hardware address — what `connectWifiDirect` takes. */
+  address: string;
+  status: 'available' | 'invited' | 'connected' | 'failed' | 'unavailable';
+}
+
 /** A peer seen over Wi-Fi Direct. */
 export interface WifiDirectPeer extends DiscoveredPeer {
   /** Hardware address, needed to form a group with this peer. */
@@ -165,6 +179,15 @@ export const DeviceDiscovery = {
     return typedEvent<PeerLostEvent>(
       Net.onWifiDirectPeerLost,
       'onWifiDirectPeerLost',
+    )(handler);
+  },
+
+  onWifiDirectRawPeers(
+    handler: (event: { peers: RawWifiDirectPeer[] }) => void,
+  ): EventSubscription {
+    return typedEvent<{ peers: RawWifiDirectPeer[] }>(
+      Net.onWifiDirectRawPeers,
+      'onWifiDirectRawPeers',
     )(handler);
   },
 

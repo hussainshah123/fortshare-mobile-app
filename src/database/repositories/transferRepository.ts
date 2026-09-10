@@ -369,6 +369,23 @@ export const transferRepository = {
     );
   },
 
+  /**
+   * Reconcile transfers that were in flight when the process died.
+   *
+   * A transfer still marked `active` at startup is impossible — nothing has
+   * run yet — so it was interrupted by the app being closed or killed. Marked
+   * `paused` so it becomes resumable and the UI stops claiming it is running.
+   *
+   * Returns how many were reconciled.
+   */
+  async markInterruptedAsPaused(): Promise<number> {
+    return execute(
+      `UPDATE transfers
+          SET status = 'paused', pauseReason = 'network-lost'
+        WHERE status IN ('active', 'pending', 'awaiting-approval')`,
+    );
+  },
+
   async remove(id: string): Promise<void> {
     await execute('DELETE FROM transfers WHERE id = ?', [id]);
   },

@@ -64,6 +64,25 @@ install it with "This app needs to be updated by the developer" — which sounds
 like a project problem and is only an architecture mismatch. Physical iPhones
 are `arm64` regardless.
 
+### A crash worth re-testing after any iOS change
+
+`FortSharePeerLink` uses two serial queues on purpose: `fortshare.state` for
+mutable state and `fortshare.connection` for Network framework's callbacks.
+They must never be the same queue. When they were, the first inbound frame
+deadlocked — a callback delivered *on* `stateQueue` read `isClosed`, which
+does `stateQueue.sync`, and libdispatch aborted the process with
+`EXC_BAD_INSTRUCTION` inside `__DISPATCH_WAIT_FOR_QUEUE__`.
+
+For the same reason `sendBlocking` must never be called from a connection
+callback: it waits on a semaphore that only the callback queue can signal. The
+PING handler therefore replies with the non-blocking `sendRaw`.
+
+Quickest way to exercise it without a second device — find the advertised port
+with `dns-sd -B _fortshare._tcp local`, then connect and send the preamble
+(`FSHARE\x00\x01`), a CONTROL frame, and a PING. A healthy build answers with
+its own preamble and a `0x04` PONG frame and stays alive; a regressed one dies
+immediately.
+
 ### Setup
 
     npm start                                  # Metro
@@ -139,6 +158,44 @@ and move zero bytes. Then delete the received file and repeat: it must
 transfer normally, because a history row for a deleted file must not cause a
 silent skip.
 
+**Surviving the app being closed (§36).** A transfer must not die when the
+user switches away, and must pick itself up on return:
+
+1. Start a transfer of 500 MB+.
+2. Switch to another app. The notification should show live progress — that
+   notification *is* the Android foreground service keeping the process alive.
+3. Return to FortShare. The transfer should still be running, not restarted.
+4. Now force-stop the app mid-transfer (swipe away, or `adb shell am
+   force-stop com.filesharing`).
+5. Reopen it. The transfer should appear as paused with "interrupted", and
+   resume on its own within a few seconds of the peer being rediscovered —
+   from the byte it stopped at, not from zero.
+6. Confirm the final file verifies. That is what proves the seam is correct.
+
+Worth checking explicitly with notifications **denied** as well: the service
+should still keep the transfer alive, just without a visible progress bar.
+
+**Ads must never intrude.** The rules are enforced in code and covered by
+`__tests__/ads.test.ts`, but the placement is worth eyeballing on a device:
+
+1. Complete a transfer. An interstitial may appear *after* it finishes.
+1b. Return to the Home tab after being in the app a little while — an
+   interstitial may appear there too, about a second after the screen paints.
+   It must **not** appear on a cold launch: an interstitial at app-open is an
+   "unexpected interstitial" under AdMob policy and a documented cause of
+   account enforcement. Google's format for that moment is an App Open ad.
+2. Start a large transfer and leave it running. The Home banner must be gone
+   while it runs, and no interstitial may appear — ads are suppressed
+   entirely while a transfer is live.
+3. On a fresh install, the very first transfer must complete without an ad.
+4. Two transfers in quick succession must not produce two ads.
+5. Turn the internet off (Wi-Fi only, no data). Everything must still work,
+   and the banner slot must collapse to nothing rather than leaving a gap.
+
+Note that debug builds use Google's **test** ad units, so what appears will be
+a test ad. That is intentional — requesting real ads from a development build
+is a common way to get an AdMob account flagged for invalid traffic.
+
 **Memory during a large transfer (§17).** The claim is that a 5 GB transfer
 costs one 256 KB buffer per direction and that JavaScript never sees a file
 byte. Verify it rather than trusting it:
@@ -178,11 +235,15 @@ not change, and peers that had paired with it must still connect silently.
 
 ## Known limitations
 
-- **Android needs a shared network.** Discovery is mDNS over IP, so two
-  Android devices need the same Wi-Fi or a hotspot. iOS↔iOS already works with
-  no shared network at all via AWDL peer-to-peer (`includePeerToPeer`), though
-  that path has not yet been verified on two physical iPhones. Wi-Fi Direct
-  would close this for Android.
+- **Different networks need Wi-Fi Direct (Android) or AWDL (iOS↔iOS).**
+  Discovery is mDNS over IP, so two devices on *different* Wi-Fi networks find
+  nothing over the LAN path — multicast does not cross networks. Turn on
+  Wi-Fi Direct in Devices and they connect with no shared network at all,
+  provided they are within radio range of each other. iOS↔iOS does this
+  automatically via AWDL. Neither path has been verified on hardware yet.
+- **Physical proximity is still required.** Nothing here reaches a device in
+  another location — that needs a relay server, which this app deliberately
+  does not have.
 - **No 1→many group send**, and no desktop or web client.
 - **iOS background transfers are bounded.** iOS grants a background task, not
   open-ended execution. A long transfer with the app backgrounded will

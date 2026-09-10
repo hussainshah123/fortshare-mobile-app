@@ -57,6 +57,63 @@ jest.mock('react-native-vision-camera', () => ({
   useCodeScanner: jest.fn(() => ({})),
 }));
 
+// AdMob reaches native at import time. The mock also lets the frequency and
+// suppression rules be tested without an SDK.
+jest.mock('react-native-google-mobile-ads', () => {
+  const listeners: ((event: { type: string; payload?: unknown }) => void)[] = [];
+  const mockAd = {
+    load: jest.fn(() => {
+      // Mimic a successful load on the next tick.
+      for (const listener of listeners) listener({ type: 'loaded' });
+    }),
+    // Models the user dismissing the ad, which is what always happens and is
+    // what clears the "currently showing" guard in the service.
+    show: jest.fn(() => {
+      for (const listener of [...listeners]) listener({ type: 'closed' });
+    }),
+    addAdEventsListener: jest.fn(
+      (handler: (event: { type: string; payload?: unknown }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const index = listeners.indexOf(handler);
+          if (index >= 0) listeners.splice(index, 1);
+        };
+      },
+    ),
+  };
+
+  return {
+    __esModule: true,
+    default: () => ({
+      initialize: jest.fn(async () => []),
+      setRequestConfiguration: jest.fn(async () => undefined),
+    }),
+    AdEventType: {
+      LOADED: 'loaded',
+      ERROR: 'error',
+      CLOSED: 'closed',
+      OPENED: 'opened',
+    },
+    AdsConsent: {
+      requestInfoUpdate: jest.fn(async () => ({
+        status: 'notRequired',
+        isConsentFormAvailable: false,
+      })),
+      gatherConsent: jest.fn(async () => undefined),
+    },
+    AdsConsentStatus: { REQUIRED: 'required', NOT_REQUIRED: 'notRequired' },
+    MaxAdContentRating: { PG: 'PG' },
+    InterstitialAd: { createForAdRequest: jest.fn(() => mockAd) },
+    BannerAd: 'BannerAd',
+    BannerAdSize: {
+      BANNER: 'BANNER',
+      ANCHORED_ADAPTIVE_BANNER: 'ANCHORED_ADAPTIVE_BANNER',
+    },
+    TestIds: { INTERSTITIAL: 'test-interstitial', BANNER: 'test-banner' },
+    __mockAd: mockAd,
+  };
+});
+
 jest.mock('@op-engineering/op-sqlite', () => ({
   open: () => {
     throw new Error('SQLite is not available in tests; mock the repository');

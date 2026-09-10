@@ -1,4 +1,8 @@
 {
   "name": "filesharing",
-  "displayName": "FortShare"
+  "displayName": "FortShare",
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-9318693466829633~6045143487",
+    "ios_app_id": "ca-app-pub-9318693466829633~6045143487"
+  }
 }

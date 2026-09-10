@@ -3,6 +3,7 @@ import { DeviceDiscovery } from '../../native';
 import { deviceRepository } from '../../database/repositories';
 import type { DiscoveredPeer, LocalIdentity } from '../../models/device';
 import type {
+  RawWifiDirectPeer,
   WifiDirectPeer,
   WifiDirectState,
   WifiDirectSupport,
@@ -22,6 +23,8 @@ export interface DiscoveryState {
   lastError: string | null;
   /** Wi-Fi Direct: off until the user turns it on. */
   wifiDirect: WifiDirectState & { supported: boolean; unsupportedReason: string };
+  /** Nearby Wi-Fi Direct devices, whether or not they run FortShare. */
+  wifiDirectCandidates: RawWifiDirectPeer[];
 }
 
 type StateListener = (state: DiscoveryState) => void;
@@ -40,7 +43,18 @@ type StateListener = (state: DiscoveryState) => void;
  */
 class DiscoveryServiceImpl {
   private peers = new Map<string, DiscoveredPeer>();
-  private networkAvailable = true;
+  /**
+   * Whether this device has a usable local network.
+   *
+   * Starts `false` and is established from the actual addresses at startup.
+   * It used to default to `true` and rely on a ConnectivityManager callback to
+   * correct it — but that callback only fires when a matching network
+   * *appears*, so a device that started with Wi-Fi already off was never
+   * corrected. The app then advertised on "(no address)", showed itself as
+   * "Ready to Share", and let every connection burn a 10-second timeout
+   * before failing with ENETUNREACH.
+   */
+  private networkAvailable = false;
   private localAddress = '';
   private running = false;
   private lastError: string | null = null;
@@ -53,6 +67,7 @@ class DiscoveryServiceImpl {
 
   /** P2P addresses for Wi-Fi Direct peers, keyed by deviceId. */
   private p2pAddresses = new Map<string, string>();
+  private wifiDirectCandidates: RawWifiDirectPeer[] = [];
   private wifiDirect: DiscoveryState['wifiDirect'] = {
     enabled: false,
     connected: false,
@@ -92,12 +107,23 @@ class DiscoveryServiceImpl {
     });
 
     this.localAddress = await DeviceDiscovery.getLocalAddress().catch(() => '');
+    // Ground truth: an address is the only proof of a usable network.
+    this.networkAvailable = this.localAddress.length > 0;
     this.running = true;
     this.lastError = null;
-    log.info(
-      `advertising "${identity.deviceName}" as ${identity.platform} on port ${port}`,
-      { address: this.localAddress || '(none)' },
-    );
+
+    if (this.networkAvailable) {
+      log.info(
+        `advertising "${identity.deviceName}" as ${identity.platform} on port ${port}`,
+        { address: this.localAddress },
+      );
+    } else {
+      log.warn(
+        'no local network address — this device cannot be reached until Wi-Fi is on',
+      );
+      // Nothing discovered on a previous network is valid now.
+      this.peers.clear();
+    }
     this.emit();
   }
 
@@ -141,6 +167,8 @@ class DiscoveryServiceImpl {
       this.onError(error instanceof Error ? error.message : String(error));
     });
     this.localAddress = await DeviceDiscovery.getLocalAddress().catch(() => '');
+    this.networkAvailable = this.localAddress.length > 0;
+    if (!this.networkAvailable) this.peers.clear();
     this.emit();
   }
 
@@ -160,6 +188,7 @@ class DiscoveryServiceImpl {
       running: this.running,
       lastError: this.lastError,
       wifiDirect: { ...this.wifiDirect },
+      wifiDirectCandidates: [...this.wifiDirectCandidates],
     };
   }
 
@@ -218,9 +247,30 @@ class DiscoveryServiceImpl {
         DeviceDiscovery.onWifiDirectPeerLost((event) =>
           this.onDirectLost(event.deviceId),
         ),
+        DeviceDiscovery.onWifiDirectRawPeers((event) => {
+          this.wifiDirectCandidates = event.peers;
+          log.debug(`wi-fi direct sees ${event.peers.length} nearby device(s)`, {
+            names: event.peers.map((peer) => peer.name),
+          });
+          this.emit();
+        }),
         DeviceDiscovery.onWifiDirectStateChanged((state) => {
+          const wasConnected = this.wifiDirect.connected;
           this.wifiDirect = { ...this.wifiDirect, ...state };
           if (state.message) log.warn(`wi-fi direct: ${state.message}`);
+
+          /**
+           * A group just formed: re-scan.
+           *
+           * The group brings up a new network interface (192.168.49.x) that
+           * both devices share, and mDNS advertises on all interfaces — so a
+           * refresh here is what identifies the peer as a FortShare device.
+           * Without it the group exists but nothing knows who is on it.
+           */
+          if (!wasConnected && state.connected) {
+            log.info('wi-fi direct group formed — rescanning over the new link');
+            void this.refresh().catch(() => undefined);
+          }
           this.emit();
         }),
       );
@@ -277,12 +327,59 @@ class DiscoveryServiceImpl {
    * same handshake, same encryption.
    */
   async openWifiDirectRoute(deviceId: string): Promise<DiscoveredPeer | null> {
-    const p2pAddress = this.p2pAddresses.get(deviceId);
     const peer = this.peers.get(deviceId);
-    if (!p2pAddress || !peer) return null;
+    if (!peer) return null;
 
-    log.info(`forming wi-fi direct group with ${peer.deviceName}`);
-    const link = await DeviceDiscovery.connectWifiDirect(p2pAddress);
+    /**
+     * Find this device among the raw Wi-Fi Direct candidates.
+     *
+     * A P2P service record gives us a deviceId, but it often never arrives —
+     * whereas the raw peer list almost always does. Raw peers carry only a
+     * name and a hardware address, so the deviceId has to be bridged some
+     * other way.
+     *
+     * Matching on name is a heuristic, but a strong one here: Android's P2P
+     * device name defaults to the same model string the app advertises
+     * ("HUAWEI JSN-L22"), so the two line up. It is only ever used to *offer*
+     * a direct connection — identity is still proved by the handshake's
+     * Ed25519 signature once the group is up, so a wrong guess costs a failed
+     * invitation, never a misplaced trust decision.
+     */
+    const p2pAddress =
+      this.p2pAddresses.get(deviceId) ?? this.matchCandidateByName(peer.deviceName);
+
+    if (!p2pAddress) {
+      log.warn(
+        `no wi-fi direct candidate matches ${peer.deviceName}`,
+        { candidates: this.wifiDirectCandidates.map((entry) => entry.name) },
+      );
+      return null;
+    }
+
+    log.info(`forming wi-fi direct group with ${peer.deviceName}`, {
+      p2pAddress,
+      matchedByName: !this.p2pAddresses.has(deviceId),
+    });
+
+    /**
+     * Forming a group needs the *other* user to accept Android's own
+     * invitation dialog, so this blocks for as long as that takes. Surfacing
+     * it through state means the UI can say what is being waited for instead
+     * of appearing frozen for thirty seconds.
+     */
+    this.wifiDirect = {
+      ...this.wifiDirect,
+      message: `Waiting for ${peer.deviceName} to accept the connection…`,
+    };
+    this.emit();
+
+    let link;
+    try {
+      link = await DeviceDiscovery.connectWifiDirect(p2pAddress);
+    } finally {
+      this.wifiDirect = { ...this.wifiDirect, message: null };
+      this.emit();
+    }
 
     if (link.isGroupOwner) {
       // We own the group, so the peer dials us. There is nothing for this
@@ -303,6 +400,69 @@ class DiscoveryServiceImpl {
     this.emit();
     log.info(`wi-fi direct route ready: ${link.host}:${port}`);
     return routed;
+  }
+
+  /**
+   * Whether this device could be reached over Wi-Fi Direct.
+   *
+   * True once P2P service discovery has seen it, which happens even when the
+   * two devices share no network at all — the case where mDNS finds nothing.
+   */
+  canReachViaWifiDirect(deviceId: string): boolean {
+    return this.p2pAddresses.has(deviceId);
+  }
+
+  /** Whether Wi-Fi Direct is currently switched on. */
+  isWifiDirectEnabled(): boolean {
+    return this.wifiDirect.enabled;
+  }
+
+  /**
+   * Invite a nearby Wi-Fi Direct device to form a group.
+   *
+   * Takes a P2P address rather than a deviceId, because at this point we do
+   * not know who the device is — that is the whole point. Once the group is
+   * up, mDNS over the new interface identifies it.
+   */
+  async inviteWifiDirect(address: string): Promise<void> {
+    log.info(`inviting ${address} to form a wi-fi direct group`);
+    await DeviceDiscovery.connectWifiDirect(address);
+    // The state listener above rescans once the group is reported formed;
+    // this covers the case where the group was already up.
+    await this.refresh().catch(() => undefined);
+  }
+
+  /** Whether the hardware could do Wi-Fi Direct if the user turned it on. */
+  isWifiDirectAvailable(): boolean {
+    return (
+      this.wifiDirect.supported ||
+      this.wifiDirect.unsupportedReason === 'permission-required'
+    );
+  }
+
+  /**
+   * Loosely match a FortShare device name to a raw P2P device name.
+   *
+   * Normalised because the two sources punctuate differently — one may report
+   * "HUAWEI JSN-L22" and the other "Huawei JSN L22".
+   */
+  private matchCandidateByName(deviceName: string): string | null {
+    const normalise = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const target = normalise(deviceName);
+    if (target.length < 3) return null;
+
+    const exact = this.wifiDirectCandidates.find(
+      (candidate) => normalise(candidate.name) === target,
+    );
+    if (exact) return exact.address;
+
+    // One name containing the other covers "HUAWEI JSN-L22" vs "JSN-L22".
+    const partial = this.wifiDirectCandidates.find((candidate) => {
+      const name = normalise(candidate.name);
+      return name.length >= 3 && (name.includes(target) || target.includes(name));
+    });
+    return partial?.address ?? null;
   }
 
   private onDirectFound(peer: WifiDirectPeer): void {

@@ -36,6 +36,12 @@ interface DeviceState {
   discovering: boolean;
   discoveryError: string | null;
   loading: boolean;
+  /** Nearby Wi-Fi Direct devices, whether or not they run FortShare. */
+  wifiDirectCandidates: {
+    name: string;
+    address: string;
+    status: string;
+  }[];
   /** Wi-Fi Direct: opt-in, and the only path that bypasses the router. */
   wifiDirect: {
     enabled: boolean;
@@ -52,6 +58,7 @@ interface DeviceState {
     localAddress: string;
     running: boolean;
     lastError: string | null;
+    wifiDirectCandidates: { name: string; address: string; status: string }[];
     wifiDirect: {
       enabled: boolean;
       connected: boolean;
@@ -61,6 +68,7 @@ interface DeviceState {
     };
   }) => void;
   toggleWifiDirect: (enabled: boolean) => Promise<{ ok: boolean; message?: string }>;
+  inviteWifiDirect: (address: string) => Promise<{ ok: boolean; message?: string }>;
   setConnecting: (deviceId: string, value: boolean) => void;
   setConnected: (deviceId: string, value: boolean) => void;
   toggleFavorite: (deviceId: string) => Promise<void>;
@@ -81,6 +89,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   discovering: false,
   discoveryError: null,
   loading: true,
+  wifiDirectCandidates: [],
   wifiDirect: {
     enabled: false,
     connected: false,
@@ -104,6 +113,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       localAddress: state.localAddress,
       discovering: state.running,
       discoveryError: state.lastError,
+      wifiDirectCandidates: state.wifiDirectCandidates,
       wifiDirect: {
         enabled: state.wifiDirect.enabled,
         connected: state.wifiDirect.connected,
@@ -112,6 +122,21 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         message: state.wifiDirect.message,
       },
     }),
+
+  inviteWifiDirect: async (address) => {
+    try {
+      await DiscoveryService.inviteWifiDirect(address);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Could not form a Wi-Fi Direct group',
+      };
+    }
+  },
 
   toggleWifiDirect: async (enabled) => {
     if (!enabled) {

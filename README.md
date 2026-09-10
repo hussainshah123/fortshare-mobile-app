@@ -4,9 +4,16 @@ Peer-to-peer file sharing for Android and iOS, with no backend of any kind.
 
 Files travel directly from one device's socket to the other's over the local
 network. Devices, pairings, transfers and statistics live in SQLite on the
-device that created them. There is no server, no account, no cloud, and no
-step that needs an internet connection — discovery, pairing, transfer, resume
-and history all work with the internet switched off.
+device that created them. There is no server for any of it, no account and no
+cloud — discovery, pairing, transfer, resume and history all work with the
+internet switched off.
+
+The app is ad-supported (Google AdMob), so it does contact Google's ad servers
+when online. That is the one exception, and it is deliberately fenced off: the
+ad SDK starts last, un-awaited, and every failure path resolves to "no ad
+shown". An interstitial is never displayed during a transfer, never before the
+user's first completed transfer, and no more than once every ten minutes.
+**No file, filename, device name or transfer detail is ever sent anywhere.**
 
 The product idea in one line:
 
@@ -47,6 +54,7 @@ Device A ── local Wi-Fi / hotspot / peer-to-peer ── Device B
 | Resume | The receiver's on-disk `.part` length is the only authority. Survives app restart and phone restart. |
 | Integrity | SHA-256 streamed natively over each whole file, verified on receipt before the file is published. |
 | Storage | MMKV for identity and preferences; SQLite for devices, pairings, transfers and files. |
+| Ads | AdMob banner on Home plus an interstitial at natural breaks. Isolated so that no ad failure can affect a transfer, and both are removed while one runs. |
 
 ---
 

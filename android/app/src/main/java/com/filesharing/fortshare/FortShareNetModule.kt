@@ -35,6 +35,7 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
         override fun networkChanged(json: String) = emitOnNetworkChanged(json)
         override fun wifiDirectPeerFound(json: String) = emitOnWifiDirectPeerFound(json)
         override fun wifiDirectPeerLost(json: String) = emitOnWifiDirectPeerLost(json)
+        override fun wifiDirectRawPeers(json: String) = emitOnWifiDirectRawPeers(json)
         override fun wifiDirectStateChanged(json: String) =
             emitOnWifiDirectStateChanged(json)
         override fun connection(json: String) = emitOnConnection(json)

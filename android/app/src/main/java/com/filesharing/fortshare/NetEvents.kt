@@ -15,6 +15,7 @@ internal interface NetEvents {
 
     fun wifiDirectPeerFound(json: String)
     fun wifiDirectPeerLost(json: String)
+    fun wifiDirectRawPeers(json: String)
     fun wifiDirectStateChanged(json: String)
 
     fun connection(json: String)

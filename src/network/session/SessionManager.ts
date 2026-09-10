@@ -86,6 +86,18 @@ class SessionManagerImpl {
    * than trusted to ordering alone. Flushed the moment the handshake exists.
    */
   private earlyFrames = new Map<string, ControlMessage[]>();
+  /**
+   * Addresses that returned "no route", with when we learned it.
+   *
+   * A router blocking client-to-client traffic will keep doing so, and each
+   * attempt costs a full 10-second connect timeout. Remembering the verdict
+   * turns a repeated 10-second wait into an instant skip, so the Wi-Fi Direct
+   * fallback is reached immediately instead of after every retry.
+   *
+   * Expires, because DHCP hands the same address to different devices and a
+   * router setting can be changed.
+   */
+  private unreachable = new Map<string, number>();
 
   private subscriptions: EventSubscription[] = [];
   private started = false;
@@ -248,14 +260,38 @@ class SessionManagerImpl {
       );
     }
 
+    const UNREACHABLE_TTL_MS = 2 * 60 * 1000;
+    const now = Date.now();
+    for (const [address, at] of this.unreachable) {
+      if (now - at > UNREACHABLE_TTL_MS) this.unreachable.delete(address);
+    }
+
+    // Try addresses we have no verdict on first; a known-blocked one is only
+    // retried if nothing else is left.
+    const ordered = [...attempts].sort((a, b) => {
+      const aBad = this.unreachable.has(`${a.host}:${peer.port}`) ? 1 : 0;
+      const bBad = this.unreachable.has(`${b.host}:${peer.port}`) ? 1 : 0;
+      return aBad - bBad;
+    });
+
     let lastError: unknown;
-    for (const [index, attempt] of attempts.entries()) {
+    for (const [index, attempt] of ordered.entries()) {
+      const key = `${attempt.host}:${peer.port}`;
+
+      // Skip a known-blocked address unless it is the only thing we have,
+      // and go straight to the fallback below.
+      if (this.unreachable.has(key) && ordered.length > 1) {
+        log.debug(`skipping ${key} — known unreachable`);
+        continue;
+      }
+
       try {
         const id = await PeerConnection.connect({
           host: attempt.host,
           port: peer.port,
           serviceRef: attempt.serviceRef,
         });
+        this.unreachable.delete(key);
         if (index > 0) {
           log.info(
             `connected on fallback address ${attempt.host} after ${index} failure(s)`,
@@ -265,6 +301,9 @@ class SessionManagerImpl {
       } catch (error) {
         lastError = error;
         const failure = classifyConnectError(error);
+        if (failure === 'no-route' && attempt.host) {
+          this.unreachable.set(key, Date.now());
+        }
         log.warn(
           `connect to ${attempt.host || '(bonjour)'}:${peer.port} failed (${failure})`,
           { message: error instanceof Error ? error.message : String(error) },
@@ -273,7 +312,11 @@ class SessionManagerImpl {
       }
     }
 
-    const failure = classifyConnectError(lastError);
+    const failure = lastError
+      ? classifyConnectError(lastError)
+      : // Every address was skipped as known-unreachable, which is itself the
+        // no-route verdict — go straight to the Wi-Fi Direct fallback.
+        ('no-route' as const);
 
     // Our own addresses, so "no route to a device on our own subnet" can be
     // reported as what it actually is rather than as a vague network problem.
