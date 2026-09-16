@@ -287,7 +287,7 @@ export function SettingsScreen() {
           />
         </Card>
 
-        <Card style={{ marginTop: theme.spacing.md }}>
+        {/* <Card style={{ marginTop: theme.spacing.md }}>
           <Text variant="bodyMedium">No account. No server. No cloud.</Text>
           <Text variant="caption" tone="muted" style={{ marginTop: theme.spacing.xs }}>
             FortShare has no backend. Files travel directly from one device to
@@ -295,7 +295,7 @@ export function SettingsScreen() {
             history are stored only on this device. Everything here works with
             the internet switched off.
           </Text>
-        </Card>
+        </Card> */}
       </Section>
     </Screen>
   );

@@ -39,11 +39,22 @@ export type DuplicateResolver = (
   size: number,
 ) => Promise<DuplicateResolution>;
 
+/**
+ * The answer to an incoming offer, with the reason for a refusal.
+ *
+ * The reason is sent to the other device and shown to that user, so it has to
+ * be true: "declined by the user" when nobody declined points the sender at
+ * entirely the wrong problem.
+ */
+export type ApprovalResult =
+  | { accepted: true }
+  | { accepted: false; reason: string };
+
 /** Asked before accepting an incoming transfer (§15: transfer authorization). */
 export type TransferApprover = (
   session: PeerSession,
   offer: TransferOfferMessage,
-) => Promise<boolean>;
+) => Promise<ApprovalResult>;
 
 interface TransferContext {
   record: TransferRecord;
@@ -74,9 +85,23 @@ type CompletionListener = (record: TransferRecord) => void;
 class TransferEngineImpl {
   private contexts = new Map<string, TransferContext>();
   private subscriptions: EventSubscription[] = [];
+  /**
+   * Unsubscribes for the SessionManager listeners.
+   *
+   * These used to be discarded, so `stop()` left them registered and a later
+   * `start()` added more. Every control frame was then handled twice — and a
+   * duplicated TRANSFER_OFFER was fatal: the first showed the approval
+   * prompt, the second saw that prompt already open and auto-declined, so the
+   * sender was told "declined by the user" while the receiver was still
+   * looking at the dialog.
+   */
+  private sessionUnsubscribes: (() => void)[] = [];
   private started = false;
 
-  private approveTransfer: TransferApprover = async () => false;
+  private approveTransfer: TransferApprover = async () => ({
+    accepted: false,
+    reason: 'FortShare is still starting up',
+  });
   private resolveDuplicate: DuplicateResolver = async () => 'keep-both';
 
   private listeners = new Set<TransferListener>();
@@ -104,18 +129,21 @@ class TransferEngineImpl {
       }),
     );
 
-    SessionManager.onMessage((session, message) => {
-      void this.onControl(session, message);
-    });
-
-    SessionManager.onSessionEnd((deviceId) => {
-      void this.onSessionLost(deviceId);
-    });
+    this.sessionUnsubscribes.push(
+      SessionManager.onMessage((session, message) => {
+        void this.onControl(session, message);
+      }),
+      SessionManager.onSessionEnd((deviceId) => {
+        void this.onSessionLost(deviceId);
+      }),
+    );
   }
 
   stop(): void {
     for (const sub of this.subscriptions) sub.remove();
     this.subscriptions = [];
+    for (const unsubscribe of this.sessionUnsubscribes) unsubscribe();
+    this.sessionUnsubscribes = [];
     this.started = false;
   }
 
@@ -374,6 +402,19 @@ class TransferEngineImpl {
     session: PeerSession,
     offer: TransferOfferMessage,
   ): Promise<void> {
+    /**
+     * Same offer twice: ignore it.
+     *
+     * Defence in depth against a duplicated listener or a peer that retries.
+     * Rejecting the second copy would tell the sender the transfer was
+     * declined while the receiver still has the prompt open — which is
+     * exactly the failure this guard exists to make impossible.
+     */
+    if (this.contexts.has(offer.transferId)) {
+      log.warn('ignoring duplicate offer', { transferId: offer.transferId });
+      return;
+    }
+
     if (offer.sessionToken !== session.sessionToken) {
       await SessionManager.send(session.peer.deviceId, {
         t: 'TRANSFER_REJECT',
@@ -383,12 +424,15 @@ class TransferEngineImpl {
       return;
     }
 
-    const approved = await this.approveTransfer(session, offer);
-    if (!approved) {
+    const approval = await this.approveTransfer(session, offer);
+    if (!approval.accepted) {
+      log.info(`offer refused: ${approval.reason}`, {
+        transferId: offer.transferId,
+      });
       await SessionManager.send(session.peer.deviceId, {
         t: 'TRANSFER_REJECT',
         transferId: offer.transferId,
-        reason: 'declined by the user',
+        reason: approval.reason,
       });
       return;
     }

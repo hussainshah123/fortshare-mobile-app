@@ -21,6 +21,7 @@ import {
 import type { HandshakePeer } from '../network/pairing/handshake';
 import type { PeerSession } from '../network/session/SessionManager';
 import type { TransferOfferMessage } from '../models/protocol';
+import type { ApprovalResult } from '../network/transfer/TransferEngine';
 import type { ActiveTransfer } from '../models/transfer';
 import type { DiscoveredPeer } from '../models/device';
 import { formatBytes, percentOf } from '../utils/format';
@@ -180,9 +181,17 @@ function wireStoreBridges(): void {
   );
 
   unsubscribers.push(
-    SessionManager.onSessionEnd((deviceId) => {
+    SessionManager.onSessionEnd((deviceId, reason) => {
       useDeviceStore.getState().setConnecting(deviceId, false);
       useDeviceStore.getState().setConnected(deviceId, false);
+      // A prompt whose peer has gone must be retired, or it blocks every
+      // later request: a pending prompt causes the next offer to be refused.
+      useUiStore
+        .getState()
+        .cancelPromptsForDevice(
+          deviceId,
+          `the connection was lost (${reason})`,
+        );
     }),
   );
 
@@ -274,7 +283,7 @@ async function handlePairingRequest(peer: HandshakePeer): Promise<boolean> {
 async function handleTransferOffer(
   session: PeerSession,
   offer: TransferOfferMessage,
-): Promise<boolean> {
+): Promise<ApprovalResult> {
   const preferences = useAppStore.getState().preferences;
 
   if (preferences.autoAcceptFromPaired) {
@@ -288,7 +297,7 @@ async function handleTransferOffer(
         .toast(
           `Receiving ${offer.files.length} ${offer.files.length === 1 ? 'file' : 'files'} from ${session.peer.deviceName}`,
         );
-      return true;
+      return { accepted: true };
     }
   }
 

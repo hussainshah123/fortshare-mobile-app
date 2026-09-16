@@ -21,8 +21,20 @@ export interface PairingPrompt {
 export interface TransferPrompt {
   session: PeerSession;
   offer: TransferOfferMessage;
-  resolve: (accepted: boolean) => void;
+  resolve: (result: ApprovalResult) => void;
 }
+
+/**
+ * The answer to an incoming transfer offer.
+ *
+ * Carries a reason rather than a bare boolean because the reason travels to
+ * the *other* device and is shown to that user. Reporting "declined by the
+ * user" when nobody declined — because a prompt happened to be open, say —
+ * sends the sender chasing the wrong problem entirely.
+ */
+export type ApprovalResult =
+  | { accepted: true }
+  | { accepted: false; reason: string };
 
 export interface DuplicatePrompt {
   fileName: string;
@@ -49,8 +61,17 @@ interface UiState {
   requestTransferApproval: (
     session: PeerSession,
     offer: TransferOfferMessage,
-  ) => Promise<boolean>;
+  ) => Promise<ApprovalResult>;
   answerTransferApproval: (accepted: boolean) => void;
+  /**
+   * Abandon any prompt belonging to a device, answering it negatively.
+   *
+   * Without this a prompt whose session died stayed on screen and, worse,
+   * stayed in state — and because a pending prompt blocks the next one, every
+   * subsequent transfer from anyone was auto-declined for the rest of the
+   * app's life.
+   */
+  cancelPromptsForDevice: (deviceId: string, reason: string) => void;
 
   requestDuplicateResolution: (
     fileName: string,
@@ -89,9 +110,15 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   requestTransferApproval: (session, offer) =>
-    new Promise<boolean>((resolve) => {
-      if (get().transferPrompt) {
-        resolve(false);
+    new Promise<ApprovalResult>((resolve) => {
+      const open = get().transferPrompt;
+      if (open) {
+        // Two devices offering at once. Honest about which it is: the sender
+        // is told the receiver is busy, not that it was refused.
+        resolve({
+          accepted: false,
+          reason: `${open.session.peer.deviceName} is already asking to send files — try again in a moment`,
+        });
         return;
       }
       set({ transferPrompt: { session, offer, resolve } });
@@ -101,7 +128,23 @@ export const useUiStore = create<UiState>((set, get) => ({
     const prompt = get().transferPrompt;
     if (!prompt) return;
     set({ transferPrompt: null });
-    prompt.resolve(accepted);
+    prompt.resolve(
+      accepted ? { accepted: true } : { accepted: false, reason: 'declined by the user' },
+    );
+  },
+
+  cancelPromptsForDevice: (deviceId, reason) => {
+    const transfer = get().transferPrompt;
+    if (transfer && transfer.session.peer.deviceId === deviceId) {
+      set({ transferPrompt: null });
+      transfer.resolve({ accepted: false, reason });
+    }
+
+    const pairing = get().pairingPrompt;
+    if (pairing && pairing.peer.deviceId === deviceId) {
+      set({ pairingPrompt: null });
+      pairing.resolve(false);
+    }
   },
 
   requestDuplicateResolution: (fileName, size) =>
