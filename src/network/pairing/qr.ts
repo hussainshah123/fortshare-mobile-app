@@ -40,6 +40,13 @@ export function generateQr(
   port: number,
   /** Fallback addresses, so a scanner is not limited to one guess. */
   hosts: string[] = [],
+  /**
+   * Credentials for a Wi-Fi Direct group this device is hosting.
+   *
+   * Included when there is no network to share, so the code describes not
+   * just where to dial but the network to dial it on.
+   */
+  group?: { ssid: string; passphrase: string },
 ): GeneratedQr {
   pruneExpired();
 
@@ -64,6 +71,7 @@ export function generateQr(
       (value, index, all) => value.length > 0 && all.indexOf(value) === index,
     ),
     port,
+    ...(group ? { ssid: group.ssid, pass: group.passphrase } : {}),
     psk,
     exp: expiresAt,
   };
@@ -139,6 +147,9 @@ export function parseQr(raw: string): QrParseResult {
         ? obj.hosts.map(String).filter((value) => value.length > 0)
         : [String(obj.host)],
       port: obj.port,
+      ...(typeof obj.ssid === 'string' && obj.ssid.length > 0
+        ? { ssid: obj.ssid, pass: String(obj.pass ?? '') }
+        : {}),
       psk: String(obj.psk),
       exp: obj.exp,
     },

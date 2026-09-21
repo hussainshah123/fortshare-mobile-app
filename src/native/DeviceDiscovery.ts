@@ -67,6 +67,37 @@ export interface RawWifiDirectPeer {
   status: 'available' | 'invited' | 'connected' | 'failed' | 'unavailable';
 }
 
+/**
+ * What the OS still needs switched on.
+ *
+ * FortShare needs the Wi-Fi radio, and — only for scanning — the system
+ * Location toggle. It uses no Bluetooth and no internet, so neither appears
+ * here and neither is ever asked for.
+ */
+export interface SystemReadiness {
+  wifiEnabled: boolean;
+  locationEnabled: boolean;
+  /** False on iOS, where scanning needs no Location toggle. */
+  locationRequired: boolean;
+  /** Older Android lets the app switch Wi-Fi on without leaving the app. */
+  canEnableWifiDirectly: boolean;
+}
+
+/** What happened when we tried to put the user where they could fix it. */
+export type SettingOutcome = 'enabled' | 'opened' | 'unavailable';
+
+/**
+ * A direct group this device is hosting.
+ *
+ * `host` is where this device's listener answers on that group — always
+ * 192.168.49.1, since Android fixes the group owner's address.
+ */
+export interface DirectGroup {
+  ssid: string;
+  passphrase: string;
+  host: string;
+}
+
 /** A peer seen over Wi-Fi Direct. */
 export interface WifiDirectPeer extends DiscoveredPeer {
   /** Hardware address, needed to form a group with this peer. */
@@ -162,6 +193,46 @@ export const DeviceDiscovery = {
 
   disconnectWifiDirect(): Promise<void> {
     return Net.disconnectWifiDirect();
+  },
+
+  /** What the OS still needs switched on before sharing can work. */
+  async systemReadiness(): Promise<SystemReadiness> {
+    return JSON.parse(await Net.systemReadiness()) as SystemReadiness;
+  },
+
+  /** Turn it on, or show the user where to. */
+  openSystemSetting(which: 'wifi' | 'location'): Promise<SettingOutcome> {
+    return Net.openSystemSetting(which) as Promise<SettingOutcome>;
+  },
+
+  /**
+   * Host a direct group, and return the credentials for joining it.
+   *
+   * Nothing is negotiated with a peer and the other device shows no
+   * invitation dialog — this brings up a real Wi-Fi network that anything can
+   * join, which is what lets the whole connection fit in a QR code.
+   */
+  async createDirectGroup(timeoutMs = 20_000): Promise<DirectGroup> {
+    return JSON.parse(await Net.createDirectGroup(timeoutMs)) as DirectGroup;
+  },
+
+  removeDirectGroup(): Promise<void> {
+    return Net.removeDirectGroup();
+  },
+
+  /** Join a group by its credentials, and route this app over it. */
+  async joinDirectGroup(
+    ssid: string,
+    passphrase: string,
+    timeoutMs = 30_000,
+  ): Promise<{ host: string }> {
+    return JSON.parse(
+      await Net.joinDirectGroup(ssid, passphrase, timeoutMs),
+    ) as { host: string };
+  },
+
+  leaveDirectGroup(): Promise<void> {
+    return Net.leaveDirectGroup();
   },
 
   onWifiDirectPeerFound(

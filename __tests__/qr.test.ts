@@ -172,3 +172,60 @@ describe('scanned-code memory', () => {
     expect(scannedPsk('android-2222')).toBeNull();
   });
 });
+
+/**
+ * Hosted-group credentials in the code.
+ *
+ * When the generating device has no network, it brings up a Wi-Fi Direct
+ * group of its own and the code has to carry the credentials for it — that is
+ * what lets two phones pair with no router, no internet, and nothing for the
+ * hosting user to accept.
+ */
+describe('a code for a hosted network', () => {
+  const me = identity();
+
+  it('carries the network name and password', () => {
+    const { payload } = generateQr(me, '192.168.49.1', 4000, [], {
+      ssid: 'DIRECT-Ab-FortShare',
+      passphrase: 'swordfish123',
+    });
+
+    expect(payload.ssid).toBe('DIRECT-Ab-FortShare');
+    expect(payload.pass).toBe('swordfish123');
+  });
+
+  it('survives a round trip through the scanner', () => {
+    const { encoded } = generateQr(me, '192.168.49.1', 4000, [], {
+      ssid: 'DIRECT-Ab-FortShare',
+      passphrase: 'swordfish123',
+    });
+
+    const result = parseQr(encoded);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.payload.ssid).toBe('DIRECT-Ab-FortShare');
+    expect(result.payload.pass).toBe('swordfish123');
+    expect(result.payload.host).toBe('192.168.49.1');
+  });
+
+  it('omits the fields entirely when no group is hosted', () => {
+    const { payload, encoded } = generateQr(me, '192.168.1.5', 4000);
+
+    expect(payload.ssid).toBeUndefined();
+    // Absent, not empty: a scanner tests for presence to decide whether to
+    // join a network at all.
+    expect(encoded).not.toContain('"ssid"');
+  });
+
+  it('is treated as an ordinary code when only a name arrives', () => {
+    // A truncated or hand-edited code must not send the scanner off trying to
+    // join a network with no password.
+    const { encoded } = generateQr(me, '192.168.1.5', 4000);
+    const broken = JSON.stringify({ ...JSON.parse(encoded), ssid: '' });
+
+    const result = parseQr(broken);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.payload.ssid).toBeUndefined();
+  });
+});

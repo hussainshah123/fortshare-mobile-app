@@ -16,6 +16,16 @@ final class FortShareDiscovery {
 
     private var browser: NWBrowser?
     private var pathMonitor: NWPathMonitor?
+    private var addressWatcher: DispatchSourceTimer?
+
+    /// The address last reported to JS, so the poll is silent when nothing has
+    /// changed. Starts as nil — distinct from "", which means "no network" and
+    /// is itself a state worth reporting once.
+    private var lastNetworkState: String?
+
+    /// Short enough that enabling a hotspot feels immediate, long enough to
+    /// be free.
+    private let addressPollInterval: DispatchTimeInterval = .seconds(2)
 
     /// deviceId -> peer, so repeated announcements are de-duplicated and a
     /// `.removed` change can be mapped back to a deviceId.
@@ -54,6 +64,9 @@ final class FortShareDiscovery {
         browser = nil
         pathMonitor?.cancel()
         pathMonitor = nil
+        addressWatcher?.cancel()
+        addressWatcher = nil
+        lastNetworkState = nil
         listenerOwner?.stopAdvertising()
         seen.removeAll()
         config = nil
@@ -170,7 +183,27 @@ final class FortShareDiscovery {
 
     // MARK: - Network changes
 
-    /// Watch for Wi-Fi coming and going.
+    /// Whether this device can be reached, and at which address.
+    ///
+    /// The only proof of a usable network is a usable address. `NWPath.status`
+    /// describes whether a *route* exists, which is a different question and
+    /// the wrong one here: sharing over a personal hotspot, over a Wi-Fi
+    /// network whose internet has gone, or over an interface the path monitor
+    /// does not consider satisfying all work perfectly well, and all used to
+    /// be reported as having no network at all.
+    ///
+    /// Emitted only on change, since the watcher below re-checks on a timer.
+    private func emitNetworkState() {
+        let address = localAddress()
+        guard address != lastNetworkState else { return }
+        lastNetworkState = address
+        events.onNetworkChanged(FortShareJSON.encode([
+            ("available", !address.isEmpty),
+            ("address", address),
+        ]))
+    }
+
+    /// Watch for the network coming and going.
     ///
     /// Deliberately not gated on internet reachability: FortShare must work on
     /// a network with no internet route at all, which is the normal case for a
@@ -179,15 +212,34 @@ final class FortShareDiscovery {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            let available = path.status == .satisfied
-            self.events.onNetworkChanged(FortShareJSON.encode([
-                ("available", available),
-                ("address", available ? self.localAddress() : ""),
-            ]))
-            if available { self.refresh() }
+            self.emitNetworkState()
+            // Re-announce on any change: addresses learned on the old network
+            // are meaningless on the new one.
+            if path.status == .satisfied || !self.localAddress().isEmpty {
+                self.refresh()
+            }
         }
         pathMonitor = monitor
         monitor.start(queue: queue)
+        startAddressWatcher()
+    }
+
+    /// Re-check the local addresses on a timer.
+    ///
+    /// The path monitor does not report the interfaces that matter most here:
+    /// a personal hotspot coming up, or an AWDL peer-to-peer link forming,
+    /// brings an interface up without changing the satisfied path. Without
+    /// this the app cannot tell that it went from unreachable to reachable.
+    ///
+    /// `getifaddrs` is a local syscall and this runs only while discovery is
+    /// running, which is only while the app is in use.
+    private func startAddressWatcher() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + addressPollInterval,
+                       repeating: addressPollInterval)
+        timer.setEventHandler { [weak self] in self?.emitNetworkState() }
+        addressWatcher = timer
+        timer.resume()
     }
 
     /// One local address, classified by the interface it belongs to.

@@ -8,6 +8,9 @@ import {
   resetAdStateForTests,
 } from '../src/services/ads';
 import {
+  AD_APP_ID,
+  AD_UNIT_BANNER,
+  AD_UNIT_INTERSTITIAL,
   HOME_AD_MIN_SESSION_MS,
   INTERSTITIAL_MIN_INTERVAL_MS,
 } from '../src/constants/ads';
@@ -183,6 +186,39 @@ describe('home screen placement', () => {
       expect(admob.__mockAd.show).toHaveBeenCalledTimes(2);
     } finally {
       jest.useRealTimers();
+    }
+  });
+});
+
+/**
+ * The IDs that actually ship.
+ *
+ * These are account-level identifiers: a typo does not fail to build, it
+ * simply earns nothing, silently, for as long as nobody checks. And a test
+ * unit left in a release build serves fake ads that pay nothing at all —
+ * which is exactly as invisible. So both are pinned here.
+ */
+describe('ad unit configuration', () => {
+  it('ships the live publisher account', () => {
+    expect(AD_APP_ID).toBe('ca-app-pub-4687548663016677~8618302099');
+    expect(AD_UNIT_INTERSTITIAL.startsWith('ca-app-pub-4687548663016677/')).toBe(
+      true,
+    );
+  });
+
+  it('never ships a Google test unit', () => {
+    // Test units are the string "ca-app-pub-3940256099942544/..." — Google's
+    // public sample account. Shipping one means zero revenue with no error.
+    expect(AD_UNIT_INTERSTITIAL).not.toContain('3940256099942544');
+    expect(AD_UNIT_BANNER).not.toContain('3940256099942544');
+  });
+
+  it('does not point the banner at the interstitial unit', () => {
+    // AdMob ties a unit to one format: a banner request against an
+    // interstitial unit no-fills every time. Empty is correct until a real
+    // banner unit exists; reusing the interstitial id would not be.
+    if (AD_UNIT_BANNER) {
+      expect(AD_UNIT_BANNER).not.toBe(AD_UNIT_INTERSTITIAL);
     }
   });
 });

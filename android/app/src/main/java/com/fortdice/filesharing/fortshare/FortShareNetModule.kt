@@ -1,7 +1,7 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 import android.util.Base64
-import com.filesharing.specs.NativeFortShareNetSpec
+import com.fortdice.filesharing.specs.NativeFortShareNetSpec
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.module.annotations.ReactModule
@@ -51,6 +51,8 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
     private val connections = ConnectionRegistry(events)
     private val discovery = DiscoveryEngine(reactContext.applicationContext, events)
     private val wifiDirect = WifiDirectEngine(reactContext.applicationContext, events)
+    private val hotspot = HotspotJoiner(reactContext.applicationContext)
+    private val readiness = SystemReadiness(reactContext.applicationContext)
 
     override fun invalidate() {
         runCatching { wifiDirect.stop() }
@@ -152,6 +154,47 @@ class FortShareNetModule(reactContext: ReactApplicationContext) :
     override fun disconnectWifiDirect(promise: Promise) {
         background(promise) {
             wifiDirect.disconnect()
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------ readiness
+
+    override fun systemReadiness(promise: Promise) {
+        background(promise) { readiness.state() }
+    }
+
+    override fun openSystemSetting(which: String, promise: Promise) {
+        background(promise) { readiness.open(which) }
+    }
+
+    // -------------------------------------------------------- direct group host
+
+    override fun createDirectGroup(timeoutMs: Double, promise: Promise) {
+        background(promise) { wifiDirect.createGroup(timeoutMs.toInt()) }
+    }
+
+    override fun removeDirectGroup(promise: Promise) {
+        background(promise) {
+            wifiDirect.removeGroup()
+            null
+        }
+    }
+
+    override fun joinDirectGroup(
+        ssid: String,
+        passphrase: String,
+        timeoutMs: Double,
+        promise: Promise,
+    ) {
+        background(promise) {
+            Json.obj("host" to hotspot.join(ssid, passphrase, timeoutMs.toInt()))
+        }
+    }
+
+    override fun leaveDirectGroup(promise: Promise) {
+        background(promise) {
+            hotspot.leave()
             null
         }
     }

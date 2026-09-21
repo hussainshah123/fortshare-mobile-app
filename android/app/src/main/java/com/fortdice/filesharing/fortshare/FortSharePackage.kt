@@ -1,4 +1,4 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 import com.facebook.react.BaseReactPackage
 import com.facebook.react.bridge.NativeModule

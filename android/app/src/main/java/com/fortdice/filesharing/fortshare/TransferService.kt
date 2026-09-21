@@ -1,4 +1,4 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,7 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.filesharing.MainActivity
+import com.fortdice.filesharing.MainActivity
 
 /**
  * Keeps a transfer alive while the app is backgrounded (§36).
@@ -69,13 +69,13 @@ class TransferService : Service() {
         const val CHANNEL_TRANSFERS = "fortshare.transfers"
         const val CHANNEL_EVENTS = "fortshare.events"
 
-        const val ACTION_START = "com.filesharing.fortshare.START"
-        const val ACTION_UPDATE = "com.filesharing.fortshare.UPDATE"
-        const val ACTION_STOP = "com.filesharing.fortshare.STOP"
-        const val ACTION_PAUSE = "com.filesharing.fortshare.PAUSE"
-        const val ACTION_CANCEL = "com.filesharing.fortshare.CANCEL"
+        const val ACTION_START = "com.fortdice.filesharing.fortshare.START"
+        const val ACTION_UPDATE = "com.fortdice.filesharing.fortshare.UPDATE"
+        const val ACTION_STOP = "com.fortdice.filesharing.fortshare.STOP"
+        const val ACTION_PAUSE = "com.fortdice.filesharing.fortshare.PAUSE"
+        const val ACTION_CANCEL = "com.fortdice.filesharing.fortshare.CANCEL"
 
-        const val BROADCAST_ACTION = "com.filesharing.fortshare.NOTIFICATION_ACTION"
+        const val BROADCAST_ACTION = "com.fortdice.filesharing.fortshare.NOTIFICATION_ACTION"
         const val EXTRA_ACTION = "action"
         const val EXTRA_TRANSFER_ID = "transferId"
         const val EXTRA_TITLE = "title"

@@ -74,6 +74,56 @@ export interface Spec extends TurboModule {
   /** Leave the current group and stop advertising over P2P. */
   disconnectWifiDirect(): Promise<void>;
 
+  // --------------------------------------------------------------- readiness
+  /**
+   * What the OS still needs switched on before sharing can work.
+   *
+   * Returns { wifiEnabled, locationEnabled, locationRequired, hasPermission,
+   * permission } JSON. Checked at launch so the app can ask once, plainly,
+   * rather than failing later with an error the user cannot connect to a
+   * cause.
+   */
+  systemReadiness(): Promise<string>;
+
+  /**
+   * Put the user where they can fix it.
+   *
+   * `which` is "wifi" or "location". Resolves with "enabled" when the app
+   * could turn it on directly (older Android lets it), "opened" when the
+   * settings screen was shown instead, and "unavailable" when neither
+   * applies.
+   */
+  openSystemSetting(which: string): Promise<string>;
+
+  // ------------------------------------------------------- direct group host
+  /**
+   * Become a Wi-Fi Direct group owner and publish credentials to join.
+   *
+   * Resolves with { ssid, passphrase, host } JSON. Unlike
+   * `connectWifiDirect`, nothing is negotiated with a specific peer and the
+   * other device shows no invitation dialog: this simply creates a real Wi-Fi
+   * network that anything can join. That is what allows the whole connection
+   * to be described by a QR code.
+   *
+   * Android only; rejects on iOS, where the equivalent (AWDL) is automatic
+   * and needs no credentials.
+   */
+  createDirectGroup(timeoutMs: Int32): Promise<string>;
+
+  /** Tear down a group created by `createDirectGroup`. */
+  removeDirectGroup(): Promise<void>;
+
+  /**
+   * Join a Wi-Fi network by name and passphrase, and route this app over it.
+   *
+   * Resolves with { host } JSON — the gateway to dial, which for a Wi-Fi
+   * Direct group is the owner. Android only.
+   */
+  joinDirectGroup(ssid: string, passphrase: string, timeoutMs: Int32): Promise<string>;
+
+  /** Leave a network joined by `joinDirectGroup` and restore routing. */
+  leaveDirectGroup(): Promise<void>;
+
   // ----------------------------------------------------------------- sockets
   /** Bind the TCP listener on an ephemeral port. Resolves with that port. */
   startServer(): Promise<Int32>;

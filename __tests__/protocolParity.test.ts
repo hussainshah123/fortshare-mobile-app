@@ -33,13 +33,13 @@ function readNative(relative: string): string {
 }
 
 const KOTLIN_PROTOCOL = readNative(
-  'android/app/src/main/java/com/filesharing/fortshare/Protocol.kt',
+  'android/app/src/main/java/com/fortdice/filesharing/fortshare/Protocol.kt',
 );
 const KOTLIN_FRAMES = readNative(
-  'android/app/src/main/java/com/filesharing/fortshare/Frames.kt',
+  'android/app/src/main/java/com/fortdice/filesharing/fortshare/Frames.kt',
 );
 const KOTLIN_CRYPTO = readNative(
-  'android/app/src/main/java/com/filesharing/fortshare/TransferCrypto.kt',
+  'android/app/src/main/java/com/fortdice/filesharing/fortshare/TransferCrypto.kt',
 );
 const SWIFT_PROTOCOL = readNative(
   'ios/filesharing/FortShare/FortShareProtocol.swift',

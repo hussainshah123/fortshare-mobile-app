@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { useTheme } from '../../theme';
 import { Button, Card, Icon, Text } from '../ui';
 import { useDeviceStore, useUiStore } from '../../store';
@@ -61,7 +61,8 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
     !wifiDirect.enabled &&
     wifiDirect.unsupportedReason &&
     wifiDirect.unsupportedReason !== 'permission-required' &&
-    wifiDirect.unsupportedReason !== 'wifi-off'
+    wifiDirect.unsupportedReason !== 'wifi-off' &&
+    wifiDirect.unsupportedReason !== 'location-off'
   ) {
     if (!blocked) return null;
     return (
@@ -78,6 +79,16 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
   }
 
   const active = wifiDirect.enabled;
+  /**
+   * Location off is the single most common reason this feature appears
+   * broken: scanning for nearby devices is a Wi-Fi scan, and Android refuses
+   * to scan with the system toggle off — `discoverPeers` then fails with a
+   * bare "internal error" that names nothing the user could act on.
+   *
+   * Hosting a group is not a scan, so the QR path still works; this says so
+   * rather than leaving the feature looking dead.
+   */
+  const locationOff = wifiDirect.unsupportedReason === 'location-off';
   // Wi-Fi Direct rides the Wi-Fi radio: it needs Wi-Fi *on*, but not
   // connected to anything. Worth saying, because "turn Wi-Fi on" sounds
   // contradictory for a feature whose whole point is not needing a network.
@@ -121,6 +132,8 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
           <Text variant="caption" tone="muted">
             {wifiOff
               ? 'Turn Wi-Fi on — it need not be connected to anything'
+              : locationOff
+              ? 'Turn Location on so Android will scan for nearby devices'
               : active
               ? wifiDirect.connected
                 ? 'Connected directly — no router involved'
@@ -159,6 +172,43 @@ export function WifiDirectPanel({ blocked = false }: { blocked?: boolean }) {
             connecting — routers call this "AP isolation". Wi-Fi Direct goes
             around it completely.
           </Text>
+        </View>
+      ) : null}
+
+      {/*
+        Location off: actionable, and the one case where the fix is entirely
+        outside the app.
+      */}
+      {locationOff ? (
+        <View
+          style={{
+            marginTop: theme.spacing.md,
+            paddingTop: theme.spacing.md,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            gap: theme.spacing.sm,
+          }}
+        >
+          <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+            <Icon name="alert" size={15} color={theme.colors.warning} />
+            <Text variant="caption" tone="warning" style={{ flex: 1 }}>
+              Android will not scan for nearby devices while Location is off.
+              It is not used for your position — only to find the other phone.
+              You can also skip scanning entirely and pair with a QR code,
+              which works either way.
+            </Text>
+          </View>
+          <Button
+            label="Open Location settings"
+            variant="secondary"
+            onPress={() => {
+              void Linking.sendIntent(
+                'android.settings.LOCATION_SOURCE_SETTINGS',
+              ).catch(() => {
+                void Linking.openSettings();
+              });
+            }}
+          />
         </View>
       ) : null}
 

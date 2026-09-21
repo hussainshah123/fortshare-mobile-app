@@ -66,7 +66,7 @@
     "type": "modules",
     "jsSrcsDir": "src/native/specs",
     "android": {
-      "javaPackageName": "com.filesharing.specs"
+      "javaPackageName": "com.fortdice.filesharing.specs"
     }
   }
 }

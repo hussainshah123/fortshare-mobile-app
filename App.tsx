@@ -19,6 +19,7 @@ import {
   DuplicatePrompt,
   IncomingTransferPrompt,
   PairingPrompt,
+  ReadinessPrompt,
 } from './src/components/prompts';
 import { startFortShare, stopFortShare } from './src/services/bootstrap';
 import { useAppStore } from './src/store';
@@ -102,6 +103,11 @@ function FortShareRoot() {
       <PairingPrompt />
       <IncomingTransferPrompt />
       <DuplicatePrompt />
+      {/*
+        Last, so a live pairing or transfer request is never covered by a
+        setup prompt the user can answer at leisure.
+      */}
+      <ReadinessPrompt />
       <Toasts />
     </NavigationContainer>
   );

@@ -9,8 +9,11 @@ import { Notifications } from '../native';
 /**
  * Permission handling (§37).
  *
- * Every request happens at the moment the feature is used, never at launch,
- * and each one is scoped as narrowly as the platform allows:
+ * No permission dialog is ever raised on its own at launch. The readiness
+ * prompt checks what is missing and explains it first; a system dialog
+ * appears only after the user taps to grant it. Everything else is requested
+ * at the moment the feature is used, and each one is scoped as narrowly as
+ * the platform allows:
  *
  *   - No blanket storage permission. Media access uses the scoped
  *     READ_MEDIA_* permissions on Android 13+, and arbitrary files go through
@@ -90,13 +93,38 @@ export async function requestCameraAccess(): Promise<boolean> {
 }
 
 /**
+ * Whether the nearby-devices permission is already granted.
+ *
+ * Checked rather than requested, so the launch readiness prompt can say what
+ * is missing without a system dialog appearing before the user has read why.
+ */
+export async function hasWifiDirectAccess(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+
+  const androidApi =
+    typeof Platform.Version === 'number'
+      ? Platform.Version
+      : Number.parseInt(String(Platform.Version), 10);
+
+  const permission =
+    androidApi >= 33
+      ? ('android.permission.NEARBY_WIFI_DEVICES' as Parameters<
+          typeof PermissionsAndroid.check
+        >[0])
+      : PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+
+  return PermissionsAndroid.check(permission).catch(() => false);
+}
+
+/**
  * The permission Wi-Fi Direct scanning needs.
  *
  * From Android 13 this is NEARBY_WIFI_DEVICES, declared `neverForLocation`.
  * Below that Android genuinely requires fine location to scan for P2P peers —
  * an OS constraint, not a FortShare choice, and the rationale text says so
  * rather than leaving the user to wonder why a file-sharing app wants their
- * location. Requested only when the user turns Wi-Fi Direct on.
+ * location. Requested only when the user turns Wi-Fi Direct on, or taps the
+ * launch prompt that explains why it is needed.
  */
 export async function requestWifiDirectAccess(): Promise<boolean> {
   if (Platform.OS !== 'android') return false;

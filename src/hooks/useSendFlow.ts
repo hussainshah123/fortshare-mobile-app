@@ -42,9 +42,19 @@ export function useSendFlow() {
        * Without this the connect attempt runs to a full 10-second timeout and
        * fails with ENETUNREACH, which reads as "that device is unreachable"
        * when the real problem is on this device.
+       *
+       * Having discovered a peer overrides this, because it is proof of a
+       * usable link that no address can show: an iPhone sharing over AWDL has
+       * no IPv4 address of its own, and is dialled through its Bonjour
+       * endpoint rather than by address. Refusing there blocked the one route
+       * that works with no Wi-Fi network at all.
        */
       const discovery = DiscoveryService.state();
-      if (!discovery.networkAvailable && !discovery.wifiDirect.connected) {
+      if (
+        !discovery.networkAvailable &&
+        !discovery.wifiDirect.connected &&
+        discovery.peers.size === 0
+      ) {
         toast(
           'This device has no Wi-Fi connection. Turn Wi-Fi on — no internet is needed.',
           'error',

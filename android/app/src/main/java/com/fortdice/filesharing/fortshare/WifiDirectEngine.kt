@@ -1,4 +1,4 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -68,6 +68,21 @@ internal class WifiDirectEngine(
         const val SERVICE_INSTANCE = "fortshare"
         /** Wi-Fi Direct service discovery uses the bare type, without a dot. */
         const val SERVICE_TYPE = "_fortshare._tcp"
+
+        /**
+         * The group owner's address is fixed by the platform.
+         *
+         * Android always puts the P2P group owner at 192.168.49.1, which is
+         * what makes a QR code useful: the host can state where it will be
+         * before anyone has joined.
+         */
+        const val GROUP_OWNER_ADDRESS = "192.168.49.1"
+
+        /** How long a single group-info request may take. */
+        const val GROUP_INFO_TIMEOUT_MS = 3_000L
+
+        /** Gap between polls while waiting for credentials to appear. */
+        const val GROUP_INFO_POLL_MS = 250L
     }
 
     data class Support(val supported: Boolean, val reason: String)
@@ -92,7 +107,41 @@ internal class WifiDirectEngine(
         if (!hasPermission()) {
             return Support(false, "permission-required")
         }
+        if (!isLocationEnabled()) {
+            return Support(false, "location-off")
+        }
         return Support(true, "")
+    }
+
+    /**
+     * Whether the system location toggle is on.
+     *
+     * Wi-Fi Direct peer discovery is a Wi-Fi scan, and Android refuses to scan
+     * while location services are switched off — `discoverPeers` then fails
+     * with a bare ERROR that says nothing about the cause. Granting the
+     * permission is *not* enough: the system-wide toggle has to be on too,
+     * which is a separate thing the user has to do in Settings and the single
+     * most common reason Wi-Fi Direct "just does not work".
+     *
+     * From Android 13 the NEARBY_WIFI_DEVICES permission is meant to remove
+     * this requirement, but plenty of OEM builds still enforce it, so the
+     * check is not version-gated.
+     */
+    private fun isLocationEnabled(): Boolean {
+        val manager = context.getSystemService(Context.LOCATION_SERVICE)
+            as? android.location.LocationManager ?: return true
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            manager.isLocationEnabled
+        } else {
+            @Suppress("DEPRECATION")
+            runCatching {
+                android.provider.Settings.Secure.getInt(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.LOCATION_MODE,
+                ) != android.provider.Settings.Secure.LOCATION_MODE_OFF
+            }.getOrDefault(true)
+        }
     }
 
     /**
@@ -384,6 +433,157 @@ internal class WifiDirectEngine(
         emitState(null)
     }
 
+    // ------------------------------------------------------------- group host
+
+    /**
+     * Become the group owner, and publish the credentials to join us.
+     *
+     * This is the difference between "Wi-Fi Direct works" and "sharing with no
+     * router works the way people expect". `connect()` negotiates a group with
+     * a specific peer, which makes the *other* device show Android's own
+     * invitation dialog — a prompt many users never see, time out on, or
+     * decline by reflex.
+     *
+     * `createGroup` instead brings up an autonomous group immediately: this
+     * device becomes the owner at 192.168.49.1 with a real SSID and
+     * passphrase, and any device can join it as an ordinary Wi-Fi network. No
+     * invitation, no negotiation, nothing for the other user to accept except
+     * joining a network. That is how a sharing app is expected to behave, and
+     * it is what makes the QR code worth scanning: the code can now carry the
+     * credentials for the network it is describing.
+     *
+     * Returns { ssid, passphrase, host } JSON.
+     */
+    fun createGroup(timeoutMs: Int): String {
+        val manager = this.manager ?: throw IllegalStateException(
+            "Wi-Fi Direct is not available on this device",
+        )
+        if (!hasPermission()) {
+            throw SecurityException("Wi-Fi Direct permission has not been granted")
+        }
+        if (!isWifiRadioOn()) {
+            throw IllegalStateException(
+                "Turn Wi-Fi on to host a direct connection. It does not need " +
+                    "to be connected to a network, and no internet is required.",
+            )
+        }
+        // Note there is deliberately no location check here. Hosting a group
+        // is not a scan: it works with location off, which makes it the
+        // reliable path on devices where peer discovery will not start.
+
+        // A group needs the channel, but not the discovery machinery: hosting
+        // works even if the user never turned Wi-Fi Direct browsing on.
+        val channel = this.channel ?: manager.initialize(context, context.mainLooper) {
+            emitState("Wi-Fi Direct channel disconnected")
+        }.also {
+            this.channel = it
+            registerReceiver()
+        }
+
+        /**
+         * An existing group is reused rather than torn down.
+         *
+         * Removing and recreating would change the passphrase, invalidating
+         * any QR code already on screen — and re-forming a group takes seconds
+         * during which the host looks broken.
+         */
+        existingGroup(manager, channel, timeoutMs)?.let { return it }
+
+        val latch = CountDownLatch(1)
+        val failure = java.util.concurrent.atomic.AtomicReference<String>(null)
+        manager.createGroup(
+            channel,
+            object : WifiP2pManager.ActionListener {
+                override fun onSuccess() = latch.countDown()
+                override fun onFailure(reason: Int) {
+                    failure.set(failureReason(reason))
+                    latch.countDown()
+                }
+            },
+        )
+
+        if (!latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)) {
+            throw IllegalStateException("Could not start a direct connection in time")
+        }
+        failure.get()?.let { reason ->
+            throw IllegalStateException("Could not start a direct connection: $reason")
+        }
+
+        // The group exists but its credentials arrive separately, and not
+        // always immediately after onSuccess.
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            existingGroup(manager, channel, timeoutMs)?.let { return it }
+            Thread.sleep(GROUP_INFO_POLL_MS)
+        }
+        throw IllegalStateException("The direct connection started but published no network name")
+    }
+
+    /** Current group credentials, or null when there is no group. */
+    private fun existingGroup(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+        timeoutMs: Int,
+    ): String? {
+        if (!hasPermission()) return null
+        val latch = CountDownLatch(1)
+        val result = java.util.concurrent.atomic.AtomicReference<String>(null)
+
+        runCatching {
+            manager.requestGroupInfo(channel) { group ->
+                if (group != null && group.isGroupOwner &&
+                    !group.networkName.isNullOrEmpty() &&
+                    !group.passphrase.isNullOrEmpty()
+                ) {
+                    isGroupOwner = true
+                    connected = true
+                    groupOwnerAddress = GROUP_OWNER_ADDRESS
+                    result.set(
+                        Json.obj(
+                            "ssid" to group.networkName,
+                            "passphrase" to group.passphrase,
+                            "host" to GROUP_OWNER_ADDRESS,
+                        ),
+                    )
+                }
+                latch.countDown()
+            }
+        }.onFailure { return null }
+
+        latch.await(timeoutMs.toLong().coerceAtMost(GROUP_INFO_TIMEOUT_MS), TimeUnit.MILLISECONDS)
+        val group = result.get()
+        if (group != null) emitState(null)
+        return group
+    }
+
+    /** Tear down a group we are hosting. */
+    fun removeGroup() {
+        val manager = this.manager ?: return
+        val channel = this.channel ?: return
+        val latch = CountDownLatch(1)
+        runCatching {
+            manager.removeGroup(
+                channel,
+                object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = latch.countDown()
+                    override fun onFailure(reason: Int) = latch.countDown()
+                },
+            )
+        }
+        latch.await(GROUP_INFO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        connected = false
+        isGroupOwner = false
+        groupOwnerAddress = ""
+        emitState(null)
+    }
+
+    private fun failureReason(reason: Int): String = when (reason) {
+        WifiP2pManager.P2P_UNSUPPORTED -> "this device does not support Wi-Fi Direct"
+        WifiP2pManager.BUSY -> "the Wi-Fi Direct radio is busy"
+        WifiP2pManager.ERROR -> "the Wi-Fi Direct framework reported an error"
+        else -> "reason $reason"
+    }
+
     // --------------------------------------------------------------- receiver
 
     private fun registerReceiver() {
@@ -527,7 +727,21 @@ internal class WifiDirectEngine(
                 "Wi-Fi Direct is not supported on this device"
             WifiP2pManager.BUSY ->
                 "Wi-Fi Direct is busy — try again in a moment"
-            WifiP2pManager.ERROR -> "Wi-Fi Direct reported an internal error"
+            /**
+             * ERROR is the framework's catch-all and says nothing useful, so
+             * name the cause that is almost always behind it. Scanning for
+             * peers is a Wi-Fi scan, and Android silently refuses to scan
+             * with location services off — reporting "an internal error"
+             * there sends the user looking for a bug that is not in the app.
+             */
+            WifiP2pManager.ERROR ->
+                if (!isLocationEnabled()) {
+                    "Turn Location on in Settings. Android will not scan for " +
+                        "nearby devices while it is off — it is not used for " +
+                        "your position, only to find the other phone."
+                } else {
+                    "Wi-Fi Direct reported an internal error"
+                }
             else -> "Wi-Fi Direct failed (code $reason)"
         }
         events.discoveryError(Json.obj("message" to "$operation: $text"))

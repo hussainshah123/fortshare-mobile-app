@@ -49,6 +49,10 @@ export function HomeScreen() {
   const identity = useAppStore((state) => state.identity);
   const storageInfo = useAppStore((state) => state.storage);
   const networkAvailable = useDeviceStore((state) => state.networkAvailable);
+  const wifiDirect = useDeviceStore((state) => state.wifiDirect);
+  // No address, but the radio is still finding devices directly — that is a
+  // working state, not the "waiting" one.
+  const searchingDirectly = !networkAvailable && wifiDirect.enabled;
   const localAddress = useDeviceStore((state) => state.localAddress);
   const loading = useDeviceStore((state) => state.loading);
   const favorites = useDeviceStore(favoriteDevices);
@@ -202,11 +206,16 @@ export function HomeScreen() {
                     width: 7,
                     height: 7,
                     borderRadius: 4,
-                    backgroundColor: networkAvailable ? '#7CF5C0' : '#FFC44D',
+                    backgroundColor:
+                      networkAvailable || searchingDirectly ? '#7CF5C0' : '#FFC44D',
                   }}
                 />
                 <Text variant="caption" style={{ color: 'rgba(255,255,255,0.9)' }}>
-                  {networkAvailable ? 'Ready to share' : 'Waiting for Wi-Fi'}
+                  {networkAvailable
+                    ? 'Ready to share'
+                    : searchingDirectly
+                    ? 'Searching over Wi-Fi Direct'
+                    : 'Waiting for Wi-Fi'}
                 </Text>
               </View>
             </View>
@@ -229,7 +238,9 @@ export function HomeScreen() {
           >
             {networkAvailable && localAddress
               ? `On this network as ${localAddress} · discoverable to other FortShare devices`
-              : 'Connect to Wi-Fi or a hotspot to find nearby devices. No internet needed.'}
+              : searchingDirectly
+              ? 'Not on any Wi-Fi network — looking for devices directly over the radio. No router or internet needed.'
+              : 'Turn Wi-Fi on to find nearby devices. It need not be connected to anything, and no internet is needed.'}
           </Text>
         </View>
       </Card>

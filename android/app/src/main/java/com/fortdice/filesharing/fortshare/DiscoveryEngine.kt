@@ -1,4 +1,4 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -37,6 +37,16 @@ internal class DiscoveryEngine(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var addressWatcher: java.util.concurrent.ScheduledExecutorService? = null
+
+    /**
+     * The address last reported to JS, so the poll below is silent when
+     * nothing has changed. Distinct from "" — which means "no network" and is
+     * itself a state worth reporting once.
+     */
+    private val lastNetworkState = java.util.concurrent.atomic.AtomicReference(
+        UNKNOWN_NETWORK_STATE,
+    )
 
     private val running = AtomicBoolean(false)
     private var config: AdvertiseConfig? = null
@@ -265,7 +275,34 @@ internal class DiscoveryEngine(
     // ------------------------------------------------------------------ network
 
     /**
-     * Watch for Wi-Fi coming and going.
+     * Whether this device can be reached, and at which address.
+     *
+     * The only proof of a usable network is a usable address. Asking
+     * ConnectivityManager instead gets this wrong in exactly the cases
+     * FortShare exists for:
+     *
+     *  - **Hotspot host.** Tethering creates no network for the device serving
+     *    it, so there is nothing to be "available" — yet `ap0`/`swlan0` is up,
+     *    peers are connected to it, and transfers work.
+     *  - **Wi-Fi off, hotspot on.** `onLost` fires for the Wi-Fi network and
+     *    used to report no network at all, which left the app showing
+     *    "Waiting for Wi-Fi" forever with a live hotspot underneath it.
+     *  - **Wi-Fi with no internet route.** Common on a travel router or a
+     *    hotspot whose data has run out.
+     *
+     * Emitted only on change, since the watcher below re-checks on a timer.
+     */
+    private fun emitNetworkState() {
+        val address = localAddress()
+        val state = if (address.isEmpty()) "" else address
+        if (lastNetworkState.getAndSet(state) == state) return
+        events.networkChanged(
+            Json.obj("available" to address.isNotEmpty(), "address" to address),
+        )
+    }
+
+    /**
+     * Watch for the network coming and going.
      *
      * Note there is no internet capability in the request: FortShare must work
      * on a network with no internet route at all, which is the normal case for
@@ -279,28 +316,57 @@ internal class DiscoveryEngine(
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                events.networkChanged(
-                    Json.obj("available" to true, "address" to localAddress()),
-                )
+                emitNetworkState()
                 if (running.get()) refresh()
             }
 
             override fun onLost(network: Network) {
-                events.networkChanged(Json.obj("available" to false, "address" to ""))
+                // Not necessarily offline: a hotspot or Ethernet interface may
+                // still be up, and losing Wi-Fi while tethering is live is the
+                // normal way of getting here.
+                emitNetworkState()
             }
 
             override fun onLinkPropertiesChanged(network: Network, props: LinkProperties) {
                 // A DHCP renewal that changed our address invalidates every
                 // address we learned; re-announce rather than trust the cache.
-                events.networkChanged(
-                    Json.obj("available" to true, "address" to localAddress()),
-                )
+                emitNetworkState()
                 if (running.get()) refresh()
             }
         }
 
         networkCallback = callback
         runCatching { connectivity.registerNetworkCallback(request, callback) }
+        watchAddresses()
+        emitNetworkState()
+    }
+
+    /**
+     * Re-check the local addresses on a timer.
+     *
+     * ConnectivityManager has no callback for the interfaces that matter most
+     * here: enabling a hotspot, tethering over USB, or a Wi-Fi Direct group
+     * forming all bring an interface up without any network becoming
+     * available. Without this the app cannot tell that it went from
+     * unreachable to reachable, and a user who turns on their hotspot to share
+     * without internet sits on "Waiting for Wi-Fi" indefinitely.
+     *
+     * Enumerating interfaces is a cheap local syscall and this only runs while
+     * discovery is running, which is only while the app is in use.
+     */
+    private fun watchAddresses() {
+        val executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "fortshare-addresses").apply { isDaemon = true }
+        }
+        addressWatcher = executor
+        runCatching {
+            executor.scheduleWithFixedDelay(
+                { runCatching { emitNetworkState() } },
+                ADDRESS_POLL_MS,
+                ADDRESS_POLL_MS,
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+            )
+        }
     }
 
     private fun unwatchNetwork() {
@@ -308,6 +374,9 @@ internal class DiscoveryEngine(
             runCatching { connectivity.unregisterNetworkCallback(callback) }
         }
         networkCallback = null
+        addressWatcher?.let { executor -> runCatching { executor.shutdownNow() } }
+        addressWatcher = null
+        lastNetworkState.set(UNKNOWN_NETWORK_STATE)
     }
 
     /** One local address, classified by the interface it belongs to. */
@@ -446,5 +515,19 @@ internal class DiscoveryEngine(
                 Charsets.UTF_8,
             )
         }.getOrDefault("Unknown device")
+    }
+
+    private companion object {
+        /**
+         * How often to re-read the local interfaces.
+         *
+         * Two seconds is short enough that turning on a hotspot feels
+         * immediate and long enough to be free: the check is a local
+         * `getifaddrs` walk, no I/O and no wakeups beyond the app's own.
+         */
+        const val ADDRESS_POLL_MS = 2_000L
+
+        /** Distinct from "" so the first real state is always reported. */
+        const val UNKNOWN_NETWORK_STATE = "\u0000unknown"
     }
 }

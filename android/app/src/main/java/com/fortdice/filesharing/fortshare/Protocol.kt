@@ -1,4 +1,4 @@
-package com.filesharing.fortshare
+package com.fortdice.filesharing.fortshare
 
 /**
  * Values shared with src/constants/protocol.ts. Keep the two in step; the

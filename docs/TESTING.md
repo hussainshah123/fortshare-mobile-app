@@ -166,7 +166,7 @@ user switches away, and must pick itself up on return:
    notification *is* the Android foreground service keeping the process alive.
 3. Return to FortShare. The transfer should still be running, not restarted.
 4. Now force-stop the app mid-transfer (swipe away, or `adb shell am
-   force-stop com.filesharing`).
+   force-stop com.fortdice.filesharing`).
 5. Reopen it. The transfer should appear as paused with "interrupted", and
    resume on its own within a few seconds of the peer being rediscovered —
    from the byte it stopped at, not from zero.
@@ -200,7 +200,7 @@ is a common way to get an AdMob account flagged for invalid traffic.
 costs one 256 KB buffer per direction and that JavaScript never sees a file
 byte. Verify it rather than trusting it:
 
-- Android: `adb shell dumpsys meminfo com.filesharing` during a 1 GB+ transfer.
+- Android: `adb shell dumpsys meminfo com.fortdice.filesharing` during a 1 GB+ transfer.
   Java/native heap should stay flat, not track transferred bytes.
 - iOS: Xcode → Debug → Memory. Same expectation.
 

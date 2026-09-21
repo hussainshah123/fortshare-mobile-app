@@ -1,4 +1,4 @@
-package com.filesharing
+package com.fortdice.filesharing
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

@@ -6,6 +6,8 @@ import { Button, Card, Icon, Screen, Section, Text } from '../components/ui';
 import { generateQr, revokeAll } from '../network/pairing/qr';
 import { useAppStore, useDeviceStore, useUiStore } from '../store';
 import { DeviceDiscovery } from '../native';
+import type { DirectGroup } from '../native/DeviceDiscovery';
+import { DiscoveryService } from '../network/discovery/DiscoveryService';
 import { SessionManager } from '../network/session/SessionManager';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,6 +39,42 @@ export function QrShowScreen() {
   const [generation, setGeneration] = useState(0);
   const [remaining, setRemaining] = useState(QR_TOKEN_TTL_MS);
   const [candidates, setCandidates] = useState<string[]>([]);
+  const [group, setGroup] = useState<DirectGroup | null>(null);
+  const [hosting, setHosting] = useState(false);
+
+  /**
+   * With no network of our own, host one.
+   *
+   * This is what makes the code work with no router at all: instead of
+   * describing an address on a network the scanner would have to already be
+   * on, this device brings up its own Wi-Fi Direct group and the code carries
+   * the credentials for it. The other device joins that network and dials us
+   * on it — nothing to accept here, and no internet anywhere.
+   */
+  useEffect(() => {
+    if (localAddress) return;
+    let cancelled = false;
+    setHosting(true);
+    void DiscoveryService.hostDirectGroup()
+      .then((hosted) => {
+        if (!cancelled) setGroup(hosted);
+      })
+      .finally(() => {
+        if (!cancelled) setHosting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localAddress]);
+
+  // Take the group down on the way out, so the radio is not left hosting a
+  // network nobody is going to join.
+  useEffect(
+    () => () => {
+      void DiscoveryService.stopDirectGroup().catch(() => undefined);
+    },
+    [],
+  );
 
   // Every address this device answers on, so the scanner can try each rather
   // than being stuck with one guess that may be on the wrong interface.
@@ -54,11 +92,20 @@ export function QrShowScreen() {
 
   const qr = useMemo(() => {
     if (!identity || !port) return null;
-    const primary = localAddress || candidates[0] || '';
-    return generateQr(identity, primary, port, candidates);
+    // While hosting, the group owner address is the one that will work — the
+    // scanner is about to be on that network and no other.
+    const primary = group?.host || localAddress || candidates[0] || '';
+    if (!primary) return null;
+    return generateQr(
+      identity,
+      primary,
+      port,
+      group ? [] : candidates,
+      group ? { ssid: group.ssid, passphrase: group.passphrase } : undefined,
+    );
     // `generation` deliberately participates so "New code" mints a fresh PSK.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, port, localAddress, candidates, generation]);
+  }, [identity, port, localAddress, candidates, group, generation]);
 
   useEffect(() => {
     if (!qr) return;
@@ -123,7 +170,13 @@ export function QrShowScreen() {
           >
             <Icon name="clock" size={30} color={theme.colors.textFaint} />
             <Text variant="body" tone="muted" center>
-              {port ? 'This code has expired' : 'Waiting for the network…'}
+              {hosting
+                ? 'Setting up a direct connection…'
+                : !port
+                ? 'Waiting for the network…'
+                : !qr
+                ? 'No network yet — turn Wi-Fi on to share directly'
+                : 'This code has expired'}
             </Text>
           </View>
         )}
@@ -152,12 +205,37 @@ export function QrShowScreen() {
         />
       </Card>
 
+      {/*
+        The credentials in plain text as well as in the code.
+
+        A scanner that cannot join a network programmatically — every iPhone —
+        can still be pointed at Settings > Wi-Fi with a name and a password,
+        and so can anyone whose camera will not focus.
+      */}
+      {group ? (
+        <Section title="Or join by hand">
+          <Card padded={false}>
+            <Row label="Network" value={group.ssid} />
+            <Row label="Password" value={group.passphrase} />
+          </Card>
+          <Text
+            variant="caption"
+            tone="faint"
+            style={{ marginTop: theme.spacing.sm }}
+          >
+            This phone is hosting its own Wi-Fi network. The other device can
+            join it from Settings › Wi-Fi and then scan the code — no router
+            and no internet involved.
+          </Text>
+        </Section>
+      ) : null}
+
       <Section title="This device">
         <Card padded={false}>
           <Row label="Name" value={identity?.deviceName ?? '—'} />
           <Row
             label="Address"
-            value={port ? `${localAddress || 'local'}:${port}` : '—'}
+            value={port ? `${group?.host || localAddress || 'local'}:${port}` : '—'}
           />
           <Row
             label="Security code"

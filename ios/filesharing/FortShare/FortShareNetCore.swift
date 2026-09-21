@@ -99,6 +99,52 @@ final class FortShareNetCore: NSObject {
 
     @objc func disconnectWifiDirect() {}
 
+    // MARK: - Readiness
+
+    /// iOS has nothing the user must switch on first.
+    ///
+    /// Wi-Fi is required, but an app may not read its state without a special
+    /// entitlement, and AWDL needs no Location permission — so there is
+    /// nothing to ask for and nothing to check. Reporting everything ready
+    /// keeps the prompt off screens where it would only be noise.
+    @objc func systemReadiness() -> String {
+        FortShareJSON.encode([
+            ("wifiEnabled", true),
+            ("locationEnabled", true),
+            ("locationRequired", false),
+            ("canEnableWifiDirectly", false),
+        ])
+    }
+
+    @objc func openSystemSetting(which: String) -> String {
+        "unavailable"
+    }
+
+    // MARK: - Direct group host
+
+    /// Android's Wi-Fi Direct group has no iOS equivalent an app may create.
+    /// iOS reaches peers with no network through AWDL, which the Network
+    /// framework brings up automatically for a peer-to-peer browser and
+    /// listener — there are no credentials to publish or join.
+    @objc func createDirectGroup(timeoutMs: Double) throws -> String {
+        throw FortShareError.message(
+            "Hosting a direct group is not available on iOS; iPhones connect "
+                + "peer-to-peer automatically."
+        )
+    }
+
+    @objc func removeDirectGroup() {}
+
+    @objc func joinDirectGroup(ssid: String, passphrase: String, timeoutMs: Double)
+        throws -> String {
+        throw FortShareError.message(
+            "iOS does not allow an app to join a Wi-Fi network. Open Settings "
+                + "> Wi-Fi and choose \(ssid), then come back."
+        )
+    }
+
+    @objc func leaveDirectGroup() {}
+
     // MARK: - Sockets
 
     @objc func startServer() throws -> NSNumber {

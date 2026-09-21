@@ -51,6 +51,7 @@ export function DevicesScreen() {
   const loading = useDeviceStore((state) => state.loading);
   const discovering = useDeviceStore((state) => state.discovering);
   const networkAvailable = useDeviceStore((state) => state.networkAvailable);
+  const wifiDirect = useDeviceStore((state) => state.wifiDirect);
   const discoveryError = useDeviceStore((state) => state.discoveryError);
   const rescan = useDeviceStore((state) => state.rescan);
   const toggleFavorite = useDeviceStore((state) => state.toggleFavorite);
@@ -89,11 +90,41 @@ export function DevicesScreen() {
     if (loading) return <SkeletonList count={3} />;
 
     if (!networkAvailable) {
+      /**
+       * No address — but that is not necessarily a dead end.
+       *
+       * Wi-Fi switched on and joined to nothing is the case Wi-Fi Direct
+       * exists for, and the app now turns it on by itself. Telling that user
+       * to "join a Wi-Fi network" is both wrong and the opposite of what the
+       * app is doing for them. Only a Wi-Fi radio that is actually off needs
+       * something from the user.
+       */
+      if (wifiDirect.unsupportedReason === 'wifi-off') {
+        return (
+          <EmptyState
+            icon="wifi-off"
+            title="Wi-Fi is off"
+            message="Turn Wi-Fi on. It does not have to be connected to a network, and no internet is needed — FortShare can reach the other device directly."
+            tone="error"
+          />
+        );
+      }
+
+      if (wifiDirect.enabled) {
+        return (
+          <EmptyState
+            icon="wifi"
+            title="Looking for devices directly"
+            message="You are not on a Wi-Fi network, so FortShare is searching over Wi-Fi Direct instead. Nearby devices appear above — tap one to connect, with no router in between."
+          />
+        );
+      }
+
       return (
         <EmptyState
           icon="wifi-off"
           title="No Wi-Fi connection"
-          message="FortShare finds devices over your local network. Join a Wi-Fi network or a phone hotspot — no internet connection is needed."
+          message="FortShare finds devices over your local network. Join a Wi-Fi network or a phone hotspot — or turn on Wi-Fi Direct above to connect with no network at all."
           tone="error"
         />
       );
@@ -158,7 +189,7 @@ export function DevicesScreen() {
       default:
         return null;
     }
-  }, [loading, networkAvailable, tab, refresh, theme]);
+  }, [loading, networkAvailable, wifiDirect, tab, refresh, theme]);
 
   return (
     <Screen
@@ -177,52 +208,71 @@ export function DevicesScreen() {
         </View>
       }
     >
-      <SegmentedControl<Tab>
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: 'nearby', label: 'Nearby', count: buckets.nearby.length },
-          { value: 'history', label: 'History', count: buckets.history.length },
-          { value: 'favorites', label: 'Favourites', count: buckets.favorites.length },
-        ]}
-      />
-
       {/*
-        Offered whenever the Nearby tab is in use, and emphasised once a
-        connection has actually been refused by the router.
+        Everything above the list scrolls *with* it.
+
+        These used to sit outside the FlatList, so only the list scrolled
+        while the tabs, the Wi-Fi Direct panel and any error card held their
+        space at the top permanently. The panel grows as nearby devices are
+        found, and on a short screen it took nearly all of it — leaving the
+        device list a sliver, with paired devices below the fold and no way
+        to reach them. As the list header they scroll away, and the whole
+        page behaves like one page.
+
+        This is a header *element* rather than a component function on
+        purpose: a new function type on each render would remount the panel
+        and lose its in-flight invitation state.
       */}
-      {tab === 'nearby' ? (
-        <WifiDirectPanel blocked={Boolean(discoveryError) || blockedByRouter} />
-      ) : null}
-
-      {discoveryError ? (
-        <Card
-          style={{
-            marginTop: theme.spacing.md,
-            borderColor: theme.colors.warning,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.spacing.sm,
-          }}
-          padded
-        >
-          <Icon name="alert" size={16} color={theme.colors.warning} />
-          <Text variant="caption" tone="warning" style={{ flex: 1 }}>
-            {discoveryError}
-          </Text>
-        </Card>
-      ) : null}
-
       <FlatList
         data={visible}
         keyExtractor={(item) => item.deviceId}
-        contentContainerStyle={{
-          paddingTop: theme.spacing.lg,
-          paddingBottom: theme.spacing.huge,
-        }}
+        contentContainerStyle={{ paddingBottom: theme.spacing.huge }}
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
         onRefresh={() => void refresh()}
+        ListHeaderComponent={
+          <View style={{ marginBottom: theme.spacing.lg }}>
+            <SegmentedControl<Tab>
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'nearby', label: 'Nearby', count: buckets.nearby.length },
+                { value: 'history', label: 'History', count: buckets.history.length },
+                {
+                  value: 'favorites',
+                  label: 'Favourites',
+                  count: buckets.favorites.length,
+                },
+              ]}
+            />
+
+            {/*
+              Offered whenever the Nearby tab is in use, and emphasised once a
+              connection has actually been refused by the router.
+            */}
+            {tab === 'nearby' ? (
+              <WifiDirectPanel blocked={Boolean(discoveryError) || blockedByRouter} />
+            ) : null}
+
+            {discoveryError ? (
+              <Card
+                style={{
+                  marginTop: theme.spacing.md,
+                  borderColor: theme.colors.warning,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: theme.spacing.sm,
+                }}
+                padded
+              >
+                <Icon name="alert" size={16} color={theme.colors.warning} />
+                <Text variant="caption" tone="warning" style={{ flex: 1 }}>
+                  {discoveryError}
+                </Text>
+              </Card>
+            ) : null}
+          </View>
+        }
         ListEmptyComponent={empty}
         renderItem={({ item }) => (
           <DeviceCard

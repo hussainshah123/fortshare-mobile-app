@@ -23,6 +23,12 @@
       turns Wi-Fi Direct on, and never used for location.
     -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!--
+      Joining the other device's Wi-Fi Direct group by name and passphrase
+      goes through ConnectivityManager.requestNetwork, which needs this. It is
+      a normal permission, granted at install with no prompt.
+    -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation"

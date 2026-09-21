@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import { TestIds } from 'react-native-google-mobile-ads';
 
 /**
  * AdMob configuration.
@@ -12,35 +11,32 @@ import { TestIds } from 'react-native-google-mobile-ads';
  */
 
 /**
- * Real unit IDs are used only in release builds.
+ * The live interstitial unit, in every build.
  *
- * Requesting real ads from a development build inflates impressions against
- * traffic that will never convert, and repeated debug requests are a common
- * way to get an AdMob account flagged for invalid traffic. Google publishes
- * test units precisely for this.
+ * Test units were removed at the owner's request, so development builds now
+ * request real ads too. Worth knowing what that costs: impressions served to
+ * a debug build are traffic that can never convert, and repeated requests
+ * from a development device are a documented way to have an AdMob account
+ * flagged for invalid traffic. If enforcement ever becomes a concern, the fix
+ * is to put `__DEV__ ? TestIds.INTERSTITIAL :` back in front of this.
  */
-export const AD_UNIT_INTERSTITIAL = __DEV__
-  ? TestIds.INTERSTITIAL
-  : 'ca-app-pub-9318693466829633/2712885630';
+export const AD_UNIT_INTERSTITIAL = 'ca-app-pub-4687548663016677/13192';
 
 /**
  * Banner unit.
  *
- * **This needs its own ad unit — it is not configured yet.**
+ * **Still not configured.** AdMob ties each unit to exactly one format, so a
+ * banner cannot reuse the interstitial unit above — requesting one returns a
+ * no-fill every single time. Create a unit of type **Banner** in the AdMob
+ * console and paste its id here.
  *
- * A banner cannot reuse the interstitial unit: AdMob ties each unit to one
- * format, and requesting a banner against an interstitial unit returns a
- * no-fill every time. Create an "Interstitial → no, **Banner**" unit in the
- * AdMob console and paste the id below.
- *
- * Until then this stays empty in release builds and `AdBanner` renders
- * nothing, rather than shipping a request that is guaranteed to fail.
- * Development builds use Google's test unit so the placement can be seen.
+ * Empty until then, which makes `AdBanner` render nothing at all rather than
+ * ship a request guaranteed to fail.
  */
-export const AD_UNIT_BANNER = __DEV__ ? TestIds.BANNER : '';
+export const AD_UNIT_BANNER = '';
 
 /** Kept for reference; the app id is injected at build time from app.json. */
-export const AD_APP_ID = 'ca-app-pub-9318693466829633~6045143487';
+export const AD_APP_ID = 'ca-app-pub-4687548663016677~8618302099';
 
 /**
  * Minimum gap between two interstitials.

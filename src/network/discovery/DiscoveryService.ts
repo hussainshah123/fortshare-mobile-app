@@ -1,5 +1,6 @@
 import type { EventSubscription } from 'react-native';
 import { DeviceDiscovery } from '../../native';
+import type { DirectGroup } from '../../native/DeviceDiscovery';
 import { deviceRepository } from '../../database/repositories';
 import type { DiscoveredPeer, LocalIdentity } from '../../models/device';
 import type {
@@ -13,6 +14,25 @@ import { PROTOCOL_VERSION } from '../../constants/protocol';
 import { logger } from '../../services/log';
 
 const log = logger('discovery');
+
+/**
+ * Turn a machine reason into something worth showing a user.
+ *
+ * The short codes travel from native so the UI can branch on them; every one
+ * that reaches a person has to become a sentence that says what to do.
+ */
+export function describeWifiDirectReason(reason: string): string {
+  switch (reason) {
+    case 'wifi-off':
+      return 'Turn Wi-Fi on. It does not need to be connected to a network, and no internet is required.';
+    case 'location-off':
+      return 'Turn Location on in Settings. Android will not scan for nearby devices while it is off — it is not used for your position, only to find the other phone.';
+    case 'permission-required':
+      return 'FortShare needs the nearby-devices permission to find phones around you.';
+    default:
+      return reason;
+  }
+}
 
 export interface DiscoveryState {
   /** Live peers keyed by deviceId — the identity from the TXT record. */
@@ -67,6 +87,15 @@ class DiscoveryServiceImpl {
 
   /** P2P addresses for Wi-Fi Direct peers, keyed by deviceId. */
   private p2pAddresses = new Map<string, string>();
+  /**
+   * Whether the automatic Wi-Fi Direct fallback has already been tried for
+   * the current "no network" episode.
+   *
+   * Without this a denied permission prompt would be re-shown on every
+   * network event, which is how an app gets its permission permanently
+   * blocked by the OS.
+   */
+  private autoDirectAttempted = false;
   private wifiDirectCandidates: RawWifiDirectPeer[] = [];
   private wifiDirect: DiscoveryState['wifiDirect'] = {
     enabled: false,
@@ -119,12 +148,13 @@ class DiscoveryServiceImpl {
       );
     } else {
       log.warn(
-        'no local network address — this device cannot be reached until Wi-Fi is on',
+        'no local network address — falling back to wi-fi direct',
       );
       // Nothing discovered on a previous network is valid now.
       this.peers.clear();
     }
     this.emit();
+    void this.maybeAutoEnableWifiDirect().catch(() => undefined);
   }
 
   async stop(): Promise<void> {
@@ -227,7 +257,7 @@ class DiscoveryServiceImpl {
 
     const support = await this.wifiDirectSupport();
     if (!support.supported && support.reason !== 'permission-required') {
-      return { ok: false, message: support.reason };
+      return { ok: false, message: describeWifiDirectReason(support.reason) };
     }
 
     if (!support.hasPermission) {
@@ -296,6 +326,48 @@ class DiscoveryServiceImpl {
       this.wifiDirect = { ...this.wifiDirect, enabled: false, message };
       this.emit();
       return { ok: false, message };
+    }
+  }
+
+  /**
+   * Fall back to Wi-Fi Direct when there is no network at all.
+   *
+   * Wi-Fi switched on but joined to nothing is not an error state — it is the
+   * one case where Wi-Fi Direct is not merely a workaround but the *only*
+   * route. There is no address, so mDNS has nothing to advertise on and no
+   * peer can be discovered; the radio, however, is perfectly capable of
+   * forming a P2P group.
+   *
+   * This was previously opt-in behind a toggle for two reasons: it needs a
+   * permission the local-network path does not, and forming a group can
+   * disturb the device's Wi-Fi connection. The second reason does not apply
+   * here — there is no connection to disturb — and the first is a prompt the
+   * user will understand, because they are staring at an app that has just
+   * told them it cannot find anything.
+   *
+   * Tried once per episode, and never disabled automatically: a group that
+   * forms brings up its own interface and would otherwise look like "the
+   * network came back", turning itself straight off again.
+   */
+  private async maybeAutoEnableWifiDirect(): Promise<void> {
+    if (this.networkAvailable || this.wifiDirect.enabled) return;
+    if (this.autoDirectAttempted || !this.running) return;
+    this.autoDirectAttempted = true;
+
+    const support = await this.wifiDirectSupport();
+    // 'permission-required' is the one refusal worth prompting through; the
+    // rest (no hardware, Wi-Fi radio off) cannot be fixed from here.
+    if (!support.supported && support.reason !== 'permission-required') {
+      log.info(
+        `no network and no wi-fi direct fallback available: ${support.reason}`,
+      );
+      return;
+    }
+
+    log.info('no network — turning on wi-fi direct to find devices directly');
+    const result = await this.enableWifiDirect();
+    if (!result.ok) {
+      log.warn(`wi-fi direct fallback unavailable: ${result.message ?? ''}`);
     }
   }
 
@@ -400,6 +472,101 @@ class DiscoveryServiceImpl {
     this.emit();
     log.info(`wi-fi direct route ready: ${link.host}:${port}`);
     return routed;
+  }
+
+  /**
+   * Host a direct group so another device can join with no router.
+   *
+   * The counterpart to `openWifiDirectRoute`, and a better one wherever it
+   * can be used: forming a group with `connect()` makes the *other* device
+   * show Android's invitation dialog and wait for a human to accept it, while
+   * a hosted group is simply a Wi-Fi network — the joining device needs
+   * nothing at all from this one.
+   *
+   * Returns null where hosting is not possible (iOS, no hardware, no
+   * permission), so callers can fall back to an address-only code.
+   */
+  async hostDirectGroup(): Promise<DirectGroup | null> {
+    const support = await this.wifiDirectSupport();
+    /**
+     * Hosting is not a scan, so location being off does not block it.
+     *
+     * That asymmetry is the useful part: on a device where peer discovery
+     * will not start, showing a QR code still works — which makes this the
+     * reliable path rather than the fallback.
+     */
+    if (
+      !support.supported &&
+      support.reason !== 'permission-required' &&
+      support.reason !== 'location-off'
+    ) {
+      log.info(`cannot host a direct group: ${support.reason}`);
+      return null;
+    }
+    if (!support.hasPermission) {
+      const granted = await requestWifiDirectAccess();
+      if (!granted) return null;
+    }
+
+    try {
+      const group = await DeviceDiscovery.createDirectGroup();
+      log.info(`hosting direct group "${group.ssid}" at ${group.host}`);
+      this.wifiDirect = {
+        ...this.wifiDirect,
+        enabled: true,
+        supported: true,
+        connected: true,
+        isGroupOwner: true,
+        groupOwnerAddress: group.host,
+      };
+      this.emit();
+      return group;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'could not host a direct group';
+      log.warn(`hosting a direct group failed: ${message}`);
+      return null;
+    }
+  }
+
+  /** Tear down a group hosted by `hostDirectGroup`. */
+  async stopDirectGroup(): Promise<void> {
+    await DeviceDiscovery.removeDirectGroup().catch(() => undefined);
+    this.wifiDirect = {
+      ...this.wifiDirect,
+      connected: false,
+      isGroupOwner: false,
+      groupOwnerAddress: '',
+    };
+    this.emit();
+  }
+
+  /**
+   * Join a group another device is hosting, and route this app over it.
+   *
+   * Resolves with the address to dial on that network. Throws with a message
+   * fit to show the user, because every failure here is something they can
+   * act on — move closer, keep the other screen open, turn Wi-Fi on.
+   */
+  async joinDirectGroup(ssid: string, passphrase: string): Promise<string> {
+    log.info(`joining direct group "${ssid}"`);
+    const { host } = await DeviceDiscovery.joinDirectGroup(ssid, passphrase);
+    this.wifiDirect = {
+      ...this.wifiDirect,
+      connected: true,
+      isGroupOwner: false,
+      groupOwnerAddress: host,
+    };
+    this.emit();
+    log.info(`joined "${ssid}" — group owner is ${host}`);
+    return host;
+  }
+
+  /** Leave a group joined by `joinDirectGroup`. */
+  async leaveDirectGroup(): Promise<void> {
+    await DeviceDiscovery.leaveDirectGroup().catch(() => undefined);
+    this.wifiDirect = { ...this.wifiDirect, connected: false, groupOwnerAddress: '' };
+    this.emit();
   }
 
   /**
@@ -576,8 +743,14 @@ class DiscoveryServiceImpl {
       log.warn('network went away — clearing peers');
       this.peers.clear();
       this.emit();
+      // The radio is still there even when no network is: this is precisely
+      // when Wi-Fi Direct is the only way to reach anyone.
+      await this.maybeAutoEnableWifiDirect().catch(() => undefined);
       return;
     }
+
+    // A real network is back; a later loss should be allowed to try again.
+    this.autoDirectAttempted = false;
 
     if (changed) {
       this.peers.clear();

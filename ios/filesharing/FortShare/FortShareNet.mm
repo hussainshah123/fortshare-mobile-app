@@ -167,6 +167,60 @@ static void settle(RCTPromiseResolveBlock resolve,
   resolve(nil);
 }
 
+#pragma mark - Readiness
+
+- (void)systemReadiness:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject
+{
+  resolve([_core systemReadiness]);
+}
+
+- (void)openSystemSetting:(NSString *)which
+                  resolve:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject
+{
+  resolve([_core openSystemSettingWithWhich:which]);
+}
+
+#pragma mark - Direct group host
+
+- (void)createDirectGroup:(NSInteger)timeoutMs
+                  resolve:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject
+{
+  settle(resolve, reject, ^id(NSError **error) {
+    return [self->_core createDirectGroupWithTimeoutMs:(double)timeoutMs error:error];
+  });
+}
+
+- (void)removeDirectGroup:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject
+{
+  [_core removeDirectGroup];
+  resolve(nil);
+}
+
+- (void)joinDirectGroup:(NSString *)ssid
+             passphrase:(NSString *)passphrase
+              timeoutMs:(NSInteger)timeoutMs
+                resolve:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject
+{
+  settle(resolve, reject, ^id(NSError **error) {
+    return [self->_core joinDirectGroupWithSsid:ssid
+                                     passphrase:passphrase
+                                      timeoutMs:(double)timeoutMs
+                                          error:error];
+  });
+}
+
+- (void)leaveDirectGroup:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject
+{
+  [_core leaveDirectGroup];
+  resolve(nil);
+}
+
 #pragma mark - Sockets
 
 - (void)startServer:(RCTPromiseResolveBlock)resolve

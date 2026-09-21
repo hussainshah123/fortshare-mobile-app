@@ -12,6 +12,7 @@ import { Button, Card, EmptyState, Icon, Screen, Text } from '../components/ui';
 import { parseQr, rememberScannedPsk } from '../network/pairing/qr';
 import { DeviceDiscovery } from '../native';
 import { SessionManager } from '../network/session/SessionManager';
+import { DiscoveryService } from '../network/discovery/DiscoveryService';
 import { useDeviceStore, useUiStore } from '../store';
 import { requestCameraAccess } from '../services/permissions';
 import type { RootStackParamList } from '../navigation/types';
@@ -55,6 +56,42 @@ export function QrScanScreen() {
       try {
         // Held so the handshake can prove we saw this code.
         rememberScannedPsk(payload.deviceId, payload.psk, payload.exp);
+
+        /**
+         * The code describes a network of its own: join it first.
+         *
+         * The other device had no network to share, so it brought up its own
+         * Wi-Fi Direct group and put the credentials in the code. Joining is
+         * an ordinary Wi-Fi connection — nothing for the other user to accept
+         * — and once we are on it, everything below is unchanged: same dial,
+         * same handshake, same encryption.
+         */
+        if (payload.ssid && payload.pass) {
+          toast(`Joining ${payload.deviceName}'s network…`);
+          const host = await DiscoveryService.joinDirectGroup(
+            payload.ssid,
+            payload.pass,
+          );
+          await SessionManager.connect({
+            deviceId: payload.deviceId,
+            deviceName: payload.deviceName,
+            platform: payload.platform,
+            deviceType: payload.deviceType,
+            fingerprint: payload.fingerprint,
+            protocolVersion: payload.v,
+            // The group owner is where the listener is, whatever the code
+            // said — we now know the network we are actually on.
+            host,
+            hosts: [host, payload.host],
+            port: payload.port,
+            discoveredAt: Date.now(),
+          });
+
+          await useDeviceStore.getState().refreshHistory();
+          toast(`Paired with ${payload.deviceName}`, 'success');
+          navigation.replace('DeviceDetail', { deviceId: payload.deviceId });
+          return;
+        }
 
         // Warn before spending 10 seconds on a connection that cannot work.
         // Two devices "both on 192.168.1.x" is the confusing case; two devices

@@ -267,6 +267,17 @@ export interface QrPayload {
    */
   hosts?: string[];
   port: number;
+  /**
+   * The Wi-Fi network this device is hosting, when it is hosting one.
+   *
+   * Present only when the generating device brought up its own Wi-Fi Direct
+   * group because there was no network to share. A scanner that sees these
+   * joins the network first and then dials `host` on it — which is what makes
+   * the code work with no router, no internet and nothing to accept on the
+   * hosting device.
+   */
+  ssid?: string;
+  pass?: string;
   /** base64url 32 random bytes. Single-use, expires at `exp`. */
   psk: string;
   exp: number;
